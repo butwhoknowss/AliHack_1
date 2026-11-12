@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Earth Trend Detective</title>
+  <meta name="description" content="Find, visualize and test trends in NASA Earth science data." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%8D%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">🌍</span>
+      <div>
+        <h1>Earth Trend Detective</h1>
+        <p class="tagline">What is changing, where, by how much — and is it significant?</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <label class="select-wrap" for="demo-select">
+        <span class="sr-only">Demo scenarios</span>
+        <select id="demo-select" aria-label="Demo scenarios">
+          <option value="">▶ Watch a demo…</option>
+        </select>
+      </label>
+      <span id="api-status" class="api-status" title="Backend status">● connecting…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ================= LEFT: wizard ================= -->
+    <aside class="panel wizard" aria-label="Investigation setup">
+      <section class="step" id="step-what">
+        <h2><span class="step-num">1</span> What?</h2>
+        <label for="variable-select">Variable to investigate</label>
+        <select id="variable-select" required></select>
+        <div id="variable-card" class="variable-card" aria-live="polite"></div>
+      </section>
+
+      <section class="step" id="step-where">
+        <h2><span class="step-num">2</span> Where?</h2>
+        <form id="search-form" class="search-row" autocomplete="off">
+          <label for="place-input" class="sr-only">Search a place</label>
+          <input id="place-input" type="search" placeholder="Search a place (e.g. Fairbanks)" minlength="2" />
+          <button type="submit" class="btn btn-secondary">Search</button>
+        </form>
+        <ul id="search-results" class="search-results" hidden></ul>
+        <div class="mode-toggle" role="radiogroup" aria-label="Region type">
+          <label><input type="radio" name="region-mode" value="point" checked /> Point (click map)</label>
+          <label><input type="radio" name="region-mode" value="bbox" /> Box (draw on map, max 5°)</label>
+        </div>
+        <p id="region-label" class="region-label">No region selected yet — click the map.</p>
+        <div class="suggestions">
+          <span class="muted">Ideas:</span>
+          <button type="button" class="chip" data-place="desert">🏜️ Desert</button>
+          <button type="button" class="chip" data-place="rainforest">🌳 Rainforest</button>
+          <button type="button" class="chip" data-place="arctic">🧊 Arctic</button>
+          <button type="button" class="chip" data-place="city">🏙️ Big city</button>
+        </div>
+      </section>
+
+      <section class="step" id="step-when">
+        <h2><span class="step-num">3</span> When?</h2>
+        <div class="year-row">
+          <label>From <input id="start-year" type="number" min="1981" step="1" /></label>
+          <label>To <input id="end-year" type="number" min="1981" step="1" /></label>
+        </div>
+        <p class="muted small">At least 10 years. 30+ years gives the tests more power.</p>
+        <label class="check"><input id="deseasonalize" type="checkbox" checked /> Remove seasons (recommended)</label>
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <label>Significance level α
+            <select id="alpha">
+              <option value="0.05" selected>0.05 (95 % confidence)</option>
+              <option value="0.01">0.01 (99 % confidence)</option>
+              <option value="0.10">0.10 (90 % confidence)</option>
+            </select>
+          </label>
+          <label>Data resolution
+            <select id="resolution">
+              <option value="monthly" selected>Monthly</option>
+              <option value="daily">Daily (averaged to monthly for tests; slower)</option>
+            </select>
+          </label>
+        </details>
+      </section>
+
+      <button id="investigate-btn" class="btn btn-primary btn-block" type="button">🔍 Investigate</button>
+      <p id="form-error" class="error" role="alert" hidden></p>
+
+      <section class="weather-card" id="weather-card" hidden aria-live="polite">
+        <h3>Right now at this place</h3>
+        <div id="weather-body"></div>
+        <p class="muted small">Current conditions: WeatherAPI.com. One day's weather is not a trend!</p>
+      </section>
+    </aside>
+
+    <!-- ================= RIGHT: map + results ================= -->
+    <section class="content">
+      <div class="panel map-panel">
+        <div id="map" role="application" aria-label="Map: click to choose a point or draw a box"></div>
+      </div>
+
+      <div id="demo-banner" class="panel demo-banner" hidden aria-live="polite">
+        <div>
+          <strong id="demo-title"></strong>
+          <p id="demo-story" class="muted"></p>
+          <p id="demo-step" class="demo-step"></p>
+        </div>
+        <div class="demo-controls">
+          <button id="demo-prev" class="btn btn-secondary" type="button">◀ Back</button>
+          <button id="demo-next" class="btn btn-primary" type="button">Next ▶</button>
+          <button id="demo-close" class="btn btn-ghost" type="button" aria-label="Close demo">✕</button>
+        </div>
+      </div>
+
+      <div class="panel chart-panel">
+        <div class="chart-header">
+          <h2 id="chart-title">Time series</h2>
+          <div class="chart-controls">
+            <label class="check"><input id="show-anomaly" type="checkbox" checked /> Show anomalies</label>
+            <label class="check"><input id="show-ci" type="checkbox" checked /> 95 % band</label>
+          </div>
+        </div>
+        <div id="loading" class="loading" hidden>
+          <div class="spinner" aria-hidden="true"></div>
+          <span id="loading-text">Fetching NASA data…</span>
+        </div>
+        <div id="chart" class="chart">
+          <div class="empty-state">
+            <p>👈 Pick a variable, a region and a period, then press <strong>Investigate</strong>.</p>
+            <p class="muted">Or choose <strong>▶ Watch a demo</strong> at the top.</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="results" class="results" hidden>
+        <div class="cards">
+          <article class="card">
+            <h3>Rate of change</h3>
+            <p class="big" id="card-rate">–</p>
+            <p class="muted small" id="card-rate-ci">–</p>
+          </article>
+          <article class="card">
+            <h3>Total change</h3>
+            <p class="big" id="card-total">–</p>
+            <p class="muted small" id="card-total-sub">–</p>
+          </article>
+          <article class="card">
+            <h3>t-test (linear trend)</h3>
+            <p class="big" id="card-ols-p">–</p>
+            <p class="muted small" id="card-ols-sub">–</p>
+          </article>
+          <article class="card">
+            <h3>Mann-Kendall test</h3>
+            <p class="big" id="card-mk-p">–</p>
+            <p class="muted small" id="card-mk-sub">–</p>
+          </article>
+          <article class="card card-verdict" id="card-sig">
+            <h3>Significant?</h3>
+            <p class="big" id="card-sig-value">–</p>
+            <p class="muted small" id="card-sig-sub">–</p>
+          </article>
+        </div>
+
+        <div class="panel verdict-panel">
+          <h2>Verdict</h2>
+          <p id="verdict-text" class="verdict"></p>
+          <div id="compare-verdict" class="compare-verdict" hidden></div>
+          <ul id="hints" class="hints"></ul>
+          <div class="export-row">
+            <button id="export-xlsx" class="btn btn-secondary" type="button">⬇ Export Excel (.xlsx)</button>
+            <button id="export-csv" class="btn btn-secondary" type="button">⬇ Export CSV</button>
+            <span class="muted small" id="citation"></span>
+          </div>
+        </div>
+
+        <details class="panel learn">
+          <summary><strong>📘 How to read these results</strong></summary>
+          <dl>
+            <dt>Anomaly</dt>
+            <dd>How much a month differed from its normal value for that time of year. Removing the seasonal cycle this way stops "summer is hotter than winter" from hiding the long-term change.</dd>
+            <dt>Trend (rate of change)</dt>
+            <dd>The slope of the best straight line through the data, shown per decade (10 years).</dd>
+            <dt>p-value</dt>
+            <dd>The chance of seeing a trend at least this strong if nothing were really changing. Small p (below α, usually 0.05) → the trend is "statistically significant".</dd>
+            <dt>95 % confidence interval</dt>
+            <dd>The range where the true rate of change probably lies. If it does not include 0, the trend is significant.</dd>
+            <dt>Mann-Kendall test &amp; Sen's slope</dt>
+            <dd>A test that only asks "are later values usually higher (or lower) than earlier ones?". It doesn't need a straight line or bell-shaped noise, so it double-checks the t-test. Sen's slope is the median of all pairwise slopes.</dd>
+            <dt>Why can the same variable trend opposite ways?</dt>
+            <dd>One process — for example warming shifting rain belts — can make one region wetter and another drier. Always check several regions.</dd>
+          </dl>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Data: NASA POWER (MERRA-2 reanalysis; CERES/FLASHFlux radiation) · Current weather: WeatherAPI.com · Built for the NASA Earth science trend challenge.</p>
+  </footer>
+
+  <!-- Libraries (pinned versions) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+
+  <!-- App (order matters: each file adds to window.ETD) -->
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/wizard.js"></script>
+  <script src="js/demos.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

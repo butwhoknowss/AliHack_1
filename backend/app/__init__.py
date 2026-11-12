@@ -1,0 +1,1 @@
+"""Earth Trend Detective backend."""

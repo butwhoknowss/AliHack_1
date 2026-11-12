@@ -1,0 +1,29 @@
+# Earth Trend Detective - Python dependencies (Python 3.12+; verified on 3.12 Linux (Render) and 3.14 Windows)
+# Install: pip install -r requirements.txt
+
+# --- Web framework / server ---
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.16.2
+python-dotenv==1.2.4
+
+# --- HTTP client for NASA POWER + WeatherAPI.com ---
+httpx==0.28.1
+
+# --- Data + statistics ---
+numpy==2.5.4
+pandas==3.1.0
+scipy==1.18.1
+statsmodels==0.15.0
+pymannkendall==1.4.3
+
+# --- .xlsx storage (no database) ---
+openpyxl==3.1.5
+filelock==4.2.4
+
+# --- Testing / linting (dev) ---
+pytest==9.2.0
+pytest-asyncio==1.4.1
+respx==0.23.1
+ruff==0.17.3

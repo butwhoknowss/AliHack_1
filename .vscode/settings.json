@@ -1,0 +1,15 @@
+{
+  "liveServer.settings.root": "/frontend",
+  "liveServer.settings.port": 5500,
+  "liveServer.settings.ignoreFiles": [
+    ".vscode/**",
+    "**/*.xlsx",
+    "**/*.lock",
+    "data/**",
+    "backend/**",
+    "tests/**",
+    ".venv/**",
+    "**/__pycache__/**"
+  ],
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe"
+}

@@ -1,0 +1,24 @@
+# Render Blueprint for the FastAPI backend (Render -> New -> Blueprint -> pick this repo).
+services:
+  - type: web
+    name: earth-trend-detective-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /api/variables
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: WEATHERAPI_KEY
+        sync: false            # you type the key into the Render dashboard; never commit it
+      - key: CORS_ORIGINS
+        sync: false            # e.g. https://your-site.netlify.app (only needed for direct calls)
+      - key: DATA_DIR
+        value: ./data
+      - key: CACHE_TTL_DAYS
+        value: "30"
+      - key: HTTP_TIMEOUT_SECONDS
+        value: "60"
+      - key: LOG_LEVEL
+        value: INFO
