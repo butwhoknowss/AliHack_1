@@ -44,13 +44,14 @@ This document is the source of truth for how the system is built. `README.md` is
 | Static hosting | **Live Server** locally, **Netlify** in production | Serve `frontend/`. Netlify also proxies `/api/*` to Render, the job nginx would normally do. |
 | API | **FastAPI** on **uvicorn**, 1 worker (Python ≥ 3.12) | Validation, orchestration, statistics, export |
 | Long time series | **NASA POWER** REST API (no key) | Monthly/daily point data from 1981. Meteorology from MERRA-2; radiation from CERES/FLASHFlux. |
+| Satellite / land-model series | **NASA Giovanni** time-series API (free Earthdata login) | GPM, OMI, AIRS and GLDAS monthly point data from 2000–2005. Optional: disabled without a working login. |
 | Geocoding + "right now" | **WeatherAPI.com** (key in `.env`) | Place search → lat/lon, plus the current-conditions card |
 | Storage | **.xlsx** via `openpyxl` + `pandas` | Variable catalog, demos, monthly response cache, saved analyses |
 | Frontend | Vanilla JS with **Leaflet 1.9.4**, **Leaflet.draw 1.0.4** and **Plotly 2.35.2**, all from pinned CDNs | Dashboard UI. No build step. |
 
 **Why not Docker or nginx?** The team deploys from GitHub to Netlify, which only serves static files and can't run Python. The backend therefore runs on Render. Netlify's `/api/*` rewrite in `netlify.toml` replaces nginx's reverse proxy, so in production the browser only talks to the Netlify domain.
 
-**Why WeatherAPI.com is not the trend source:** its history only reaches back a few days on the free plan, and a trend test needs at least 10 years of monthly data. It is used for search and current conditions only. Every time-series provider sits behind the `DataSource` protocol (§6), so GES DISC / Giovanni sources (MODIS, OMI, AIRS, GPM, GLDAS) can be added later.
+**Why WeatherAPI.com is not the trend source:** its history only reaches back a few days on the free plan, and a trend test needs at least 10 years of monthly data. It is used for search and current conditions only. Every time-series provider sits behind the `DataSource` protocol (§6). NASA POWER and NASA Giovanni are implemented; each catalog variable names its `provider`.
 
 ---
 
@@ -72,8 +73,8 @@ Hackathon_1/
 │   ├── deps.py                # accessors for objects on app.state
 │   ├── models/requests.py     # Region, AnalyzeRequest (+ validators)
 │   ├── models/responses.py    # Variable, SeriesPoint, OLSResult, MannKendallResult, TrendResult, AnalyzeResponse, ...
-│   ├── routers/               # health, variables, locations, weather, timeseries, analyze, demos, export
-│   ├── sources/               # base.py (DataSource), nasa_power.py, weatherapi.py
+│   ├── routers/               # health, variables, resources, locations, weather, timeseries, analyze, demos, export
+│   ├── sources/               # base.py (DataSource), nasa_power.py, giovanni.py, weatherapi.py
 │   ├── services/              # region.py, series.py, trend.py, explain.py, analysis.py
 │   └── storage/               # xlsx_store.py (ONLY .xlsx IO), seed.py (default catalog)
 ├── frontend/
@@ -81,7 +82,7 @@ Hackathon_1/
 │   ├── css/styles.css
 │   └── js/ config.js api.js map.js charts.js wizard.js demos.js app.js
 ├── data/                      # catalog.xlsx (generated, committed); cache.xlsx, analyses.xlsx (runtime, gitignored)
-└── tests/                     # conftest.py, test_trend.py, test_nasa_power.py, test_xlsx_store.py, test_api.py
+└── tests/                     # conftest.py, test_trend.py, test_nasa_power.py, test_giovanni.py, test_xlsx_store.py, test_api.py
 ```
 
 ---
@@ -99,6 +100,9 @@ Hackathon_1/
 | `CACHE_TTL_DAYS` | `30` | Older cached series are fetched again |
 | `HTTP_TIMEOUT_SECONDS` | `60` | NASA POWER can be slow |
 | `LOG_LEVEL` | `INFO` | `httpx`/`httpcore` are forced to WARNING because their INFO lines include full URLs, which would contain the key |
+| `GIOVANNI_BASE_URL` | `https://api.giovanni.earthdata.nasa.gov` | |
+| `EARTHDATA_USERNAME` / `EARTHDATA_PASSWORD` | `""` | NASA Earthdata login used for Giovanni's `/signin` OAuth flow. This is the recommended option. Never logged. |
+| `EARTHDATA_TOKEN` | `""` | Fallback: an Earthdata user token sent as a Bearer header. Giovanni rejected one in testing (2026-11), so prefer username and password. |
 | `CORS_ORIGINS` | `""` | Extra comma-separated origins. `http://127.0.0.1:5500`/`5501` and `http://localhost:5500`/`5501` are always allowed. |
 
 ---
@@ -112,7 +116,8 @@ Base path: `/api`. Errors always look like `{"detail": "<human-readable message>
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | `{status, nasa_power, weatherapi, storage, weatherapi_configured}`. Upstream checks are cached for 5 minutes. |
-| GET | `/api/variables?category=&q=` | Catalog list, with optional filters |
+| GET | `/api/variables?category=&q=` | Catalog list, with optional filters. Each variable includes `provider` (`power`/`giovanni`), `first_year`, `available` and `unavailable_reason`. |
+| GET | `/api/resources` | Official challenge resources: `{title, provider, kind, url, how_it_helps, used_in_app}` |
 | GET | `/api/variables/{id}` | One variable (404 if unknown) |
 | GET | `/api/locations/search?q=` | Place name → `[{name, region, country, lat, lon}]` (404 if nothing matches) |
 | GET | `/api/weather/current?lat=&lon=` | Current conditions |
@@ -168,7 +173,7 @@ class AnalyzeRequest(BaseModel):
 |---|---|
 | 200 | Success |
 | 404 | Unknown variable, analysis id, or place |
-| 422 | Validation errors, or too many missing months (> 20 %, e.g. soil moisture over the ocean) |
+| 422 | Validation errors; too many missing months (> 20 %, e.g. soil moisture over the ocean); `start_year` before the variable's `first_year`; daily resolution for a Giovanni variable; a Giovanni variable without a working Earthdata login |
 | 502 | NASA POWER or WeatherAPI returned an error, a bad payload, or an invalid key |
 | 504 | Upstream timeout after retries |
 
@@ -196,14 +201,20 @@ async def fetch_point(variable_id, lat, lon, start_year, end_year, resolution) -
 
 ### 6.3 Variable catalog (`storage/seed.py` → `data/catalog.xlsx`)
 
-There are 11 variables: T2M, T2M_MAX, T2M_MIN, PRECTOTCORR, RH2M, QV2M, GWETTOP, GWETROOT, WS2M, ALLSKY_SFC_SW_DWN and PS. Each has `name`, `category`, `units`, `definition`, `why_it_matters`, `example_question`, `source` and `seasonal`.
+There are 17 variables:
+- **NASA POWER (11):** T2M, T2M_MAX, T2M_MIN, PRECTOTCORR, RH2M, QV2M, GWETTOP, GWETROOT, WS2M, ALLSKY_SFC_SW_DWN and PS.
+- **NASA Giovanni (6):** see §6.5.
+
+Each has `name`, `category`, `units`, `definition`, `why_it_matters`, `example_question`, `source` and `seasonal`. Each also has `provider`, `provider_id` (the upstream data ID), `first_year`, `scale` and `offset`. Upstream values are converted to display units with `value × scale + offset`.
+
+The catalog also holds `RESOURCES` (13 official challenge resources) and a `meta` sheet with `seed_version`.
 
 There are 3 demos:
 - `alaska-warming` (T2M)
 - `sahel-rainfall` (PRECTOTCORR)
 - `opposite-trends` (PRECTOTCORR, Sahel vs. Arizona, with a `compare_request`)
 
-The catalog is created at startup only if missing. To apply changes made in `seed.py`, delete `data/catalog.xlsx` and restart.
+At startup the catalog is created, or **rebuilt automatically when its stored `seed_version` differs from `SEED_VERSION` in `seed.py`**. To change the catalog, edit `seed.py`, bump `SEED_VERSION` and restart.
 
 ### 6.4 WeatherAPI.com (`sources/weatherapi.py`)
 
@@ -213,6 +224,38 @@ The catalog is created at startup only if missing. To apply changes made in `see
   - 400 with error code 1006 → 404 (no location)
   - other errors → 502
 - The key is a query parameter, so request URLs are never logged (see §4).
+
+### 6.5 NASA Giovanni (`sources/giovanni.py`)
+
+- **Request:** `GET {base}/timeseries?data=<provider_id>&location=[lat,lon]&time=YYYY-01-01T00:00:00/YYYY-12-31T23:59:59`.
+  - **Points only:** the API returns no area averages, so a box is sampled at up to 3 × 3 = 9 points and averaged.
+  - Concurrency is limited to 2 with retries on 429/5xx. The timeout is 120 s.
+- **Auth:**
+  - With `EARTHDATA_USERNAME`/`PASSWORD` set: the app runs Giovanni's `/signin` flow. The redirect goes to `urs.earthdata.nasa.gov/oauth/authorize` with HTTP Basic auth, sent only to that host. That redirects to `/gettoken`, which answers JSON `{"expires_in": 86400, "token": "…"}` (`parse_signin_token`; a bare quoted string is also accepted). The token is cached until 5 minutes before `expires_in`, sent as the `authorizationtoken` header, and refreshed once on 401/403. Confirmed live on 2026-11-13.
+  - With only `EARTHDATA_TOKEN` set: the token is sent as `Authorization: Bearer` and `authorizationtoken`.
+  - Live test on 2026-11-13: a valid Earthdata user token (not expired) was rejected ("Failed validating user token" / HTTP 500), so username and password is the documented path.
+  - The user must also have approved the Giovanni app in Earthdata Login once, by logging in at giovanni.gsfc.nasa.gov.
+- **Startup check:** `verify()` runs once in the background (one year, one point, first Giovanni variable). Until it succeeds, Giovanni variables report `available=false` with a plain-language `unavailable_reason`, and `/api/analyze` returns 422. The specific failure (wrong password, approval page, sign-in HTTP status, Giovanni's answer) is kept in `last_error`, shown in `unavailable_reason` and in `/api/health` as `giovanni_error`.
+- **Error quirk:** Giovanni answers **HTTP 403** with body `"Data parameter is invalid"` for an unknown data ID. This is reported as an unknown ID, not as a login failure. A recognised but disabled dataset answers 404 "currently unavailable".
+- **Parsing** (`parse_giovanni_csv`): skip the metadata lines up to the row starting with `Timestamp`, then read `time,value` rows. `fill_value`/`undef` from the metadata and common fill values (−9999, 1e15, …) become NaN. Any time step is averaged to calendar months (`to_month_start`). Then `scale`/`offset` are applied.
+- **Variables:**
+
+  | id | provider_id | Conversion | From |
+  |---|---|---|---|
+  | GPM_PRECIP | `GPM_3IMERGM_07_precipitation` | mm/hr × 24 → mm/day | 2001 |
+  | OMI_AOD | `OMAERUVd_003_FinalAerosolOpticalDepth500` (daily → monthly) | none (AOD) | 2005 |
+  | OMI_OZONE | `OMTO3d_003_ColumnAmountO3` (daily → monthly) | none (DU) | 2005 |
+  | AIRS_TSURF | `AIRS3STM_7_0_SurfAirTemp_A` | K − 273.15 → °C | 2003 |
+  | GLDAS_EVAP | `GLDAS_NOAH025_M_2_1_Evap_tavg` | kg/m²/s × 86400 → mm/day | 2000 |
+  | GLDAS_RUNOFF | `GLDAS_NOAH025_M_2_1_Qs_acc` | kg/m² per 3 h × 8 → mm/day | 2000 |
+
+  All six IDs were confirmed live on 2026-11-13 (Kansas and Amazon points, 2019–2020; values in the expected ranges after conversion). MODIS `MOD08_M3` aerosol IDs are **not** served by the Giovanni API ("Data parameter is invalid"), so aerosols come from OMI. MERRA-2 IDs are recognised but "currently unavailable".
+
+### 6.6 Official resources (`RESOURCES` → `GET /api/resources`)
+
+There are 13 entries from the challenge's Resources tab, grouped by provider (NASA, NOAA, KNMI, Statistics guides, CSA). Each URL was checked to return HTTP 200 when it was added. Two original links were replaced with verified equivalents:
+- The Hydrology Data Rods service redirects to a GES DISC notice that it has been discontinued. It is listed as retired, and GLDAS data now comes through Giovanni.
+- The RCM open-data page returned 404, so the entry links to the CSA RADARSAT page instead.
 
 ---
 
@@ -224,8 +267,10 @@ The catalog is created at startup only if missing. To apply changes made in `see
 
 | File | Sheet | Columns |
 |---|---|---|
-| `catalog.xlsx` | `variables` | id, name, category, units, definition, why_it_matters, example_question, source, seasonal |
+| `catalog.xlsx` | `variables` | id, name, category, units, definition, why_it_matters, example_question, source, seasonal, provider, provider_id, first_year, scale, offset |
 | | `demos` | demo_id, title, story, request_json, compare_request_json, narration_steps_json |
+| | `resources` | title, provider, kind, url, how_it_helps, used_in_app |
+| | `meta` | key, value (`seed_version`) |
 | `cache.xlsx` | `meta` | cache_key, source, variable_id, lat, lon, resolution, start_year, end_year, fetched_at, n_rows |
 | | `series` | cache_key, date, value |
 | `analyses.xlsx` | `analyses` | analysis_id, created_at, variable_id, region_json, start_year, end_year, resolution, deseasonalize, alpha, ols_slope_per_decade, ols_p, mk_p, sens_slope_per_decade, significant, verdict, request_json |
@@ -351,7 +396,9 @@ Note: `[hidden] { display: none !important; }` in `styles.css` is required, beca
 | `test_xlsx_store.py` | Catalog round trip, cache persistence across instances, TTL, daily kept in memory, corrupt-file recovery, saved analyses |
 | `test_api.py` | Full API through `TestClient` with mocked upstreams: analyze → cache hit → reload → xlsx/csv export, bbox sampling, validation (422), 404s, 502 mapping, all-missing 422, search/weather, CORS for :5500 |
 
-Commands: `pytest -q` (29 tests, no network) and `ruff check .`.
+| `test_giovanni.py` | CSV parsing with metadata and fill values, daily → monthly, sign-in flow (Basic auth sent only to Earthdata, token cached), unit conversion, rejected-login message, variables unavailable without a login, first-year and daily 422s, end-to-end Giovanni analysis (3 × 3 points), `/api/resources` |
+
+Commands: `pytest -q` (43 tests, no network) and `ruff check .`.
 
 ## 15. Four-day schedule
 
@@ -365,4 +412,5 @@ Commands: `pytest -q` (29 tests, no network) and `ruff check .`.
 ## 16. Data citations
 
 - NASA POWER: "These data were obtained from the NASA Langley Research Center (LaRC) POWER Project funded through the NASA Earth Science/Applied Science Program." Meteorology from MERRA-2 (NASA GMAO).
+- NASA Giovanni: "Analyses and visualizations used in this study were produced with the Giovanni online data system, developed and maintained by the NASA GES DISC."
 - Current weather and geocoding: WeatherAPI.com. Map tiles: © OpenStreetMap contributors.

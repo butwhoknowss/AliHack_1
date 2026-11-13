@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from app.storage.seed import DEMOS, VARIABLES, ensure_catalog
-from app.storage.xlsx_store import XlsxStore, load_catalog, read_workbook
+from app.storage.seed import ALL_VARIABLES, DEMOS, RESOURCES, SEED_VERSION, VARIABLES, ensure_catalog
+from app.storage.xlsx_store import XlsxStore, load_catalog, read_catalog_version, read_workbook, write_catalog
 
 
 def _meta(key: str, resolution: str = "monthly") -> dict:
@@ -13,12 +13,25 @@ def _meta(key: str, resolution: str = "monthly") -> dict:
 def test_catalog_round_trip(tmp_path):
     assert ensure_catalog(tmp_path) is True
     assert ensure_catalog(tmp_path) is False
-    variables, demos = load_catalog(tmp_path)
-    assert [v["id"] for v in variables] == [v["id"] for v in VARIABLES]
+    variables, demos, resources = load_catalog(tmp_path)
+    assert [v["id"] for v in variables] == [v["id"] for v in ALL_VARIABLES]
     assert all(isinstance(v["seasonal"], bool) for v in variables)
+    power = next(v for v in variables if v["id"] == "T2M")
+    assert power["provider"] == "power" and power["first_year"] == 1981 and power["scale"] == 1.0
+    airs = next(v for v in variables if v["id"] == "AIRS_TSURF")
+    assert airs["provider"] == "giovanni" and airs["offset"] == -273.15 and airs["first_year"] == 2003
     assert len(demos) == len(DEMOS)
     assert demos[2]["compare_request"]["variable_id"] == "PRECTOTCORR"
     assert demos[0]["compare_request"] is None
+    assert len(resources) == len(RESOURCES) and isinstance(resources[0]["used_in_app"], bool)
+
+
+def test_catalog_reseeds_when_version_changes(tmp_path):
+    write_catalog(tmp_path, VARIABLES[:1], [], [], version="old")
+    assert read_catalog_version(tmp_path) == "old"
+    assert ensure_catalog(tmp_path) is True
+    assert read_catalog_version(tmp_path) == SEED_VERSION
+    assert len(load_catalog(tmp_path)[0]) == len(ALL_VARIABLES)
 
 
 def test_cache_round_trip_and_persistence(tmp_path):

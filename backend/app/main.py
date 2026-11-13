@@ -5,6 +5,7 @@ Run (from the backend/ folder):  uvicorn app.main:app --reload --port 8000
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -19,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import REPO_ROOT, Settings, get_settings
 from .errors import DataQualityError, NotFoundError, UpstreamError, UpstreamTimeout
 from .routers import ALL_ROUTERS
+from .sources.giovanni import GiovanniSource
 from .sources.nasa_power import NasaPowerSource
 from .sources.weatherapi import WeatherApiSource
 from .storage.seed import ensure_catalog
@@ -43,10 +45,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         data_dir = settings.data_path
         data_dir.mkdir(parents=True, exist_ok=True)
         if ensure_catalog(data_dir):
-            log.info("Created %s", data_dir / "catalog.xlsx")
-        variables, demos = load_catalog(data_dir)
+            log.info("Created/updated %s", data_dir / "catalog.xlsx")
+        variables, demos, resources = load_catalog(data_dir)
         app.state.variables = {v["id"]: v for v in variables}
         app.state.demos = demos
+        app.state.resources = resources
         app.state.store = XlsxStore(data_dir, settings.cache_ttl_days)
 
         client = httpx.AsyncClient(
@@ -57,12 +60,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.http = client
         app.state.power = NasaPowerSource(client, settings.nasa_power_base_url)
         app.state.weather = WeatherApiSource(client, settings.weatherapi_base_url, settings.weatherapi_key)
+        giovanni = GiovanniSource(
+            client,
+            settings.giovanni_base_url,
+            token=settings.earthdata_token,
+            username=settings.earthdata_username,
+            password=settings.earthdata_password,
+        )
+        app.state.giovanni = giovanni
         if not settings.weatherapi_key:
             log.warning("WEATHERAPI_KEY is not set: place search and current weather are disabled.")
-        log.info("Loaded %d variables and %d demos", len(variables), len(demos))
+
+        # Check the Earthdata login in the background so startup stays fast.
+        verify_task = None
+        if giovanni.configured:
+            probe = next((v["provider_id"] for v in variables if v.get("provider") == "giovanni"), None)
+            if probe:
+                verify_task = asyncio.create_task(giovanni.verify(probe))
+                verify_task.add_done_callback(
+                    lambda t: log.info("NASA Giovanni login %s", "OK" if giovanni.verified else "FAILED (satellite variables disabled)")
+                    if not t.cancelled() else None
+                )
+        else:
+            log.info("No Earthdata login in .env: NASA Giovanni satellite variables are disabled.")
+        log.info("Loaded %d variables, %d demos, %d resources", len(variables), len(demos), len(resources))
         try:
             yield
         finally:
+            if verify_task and not verify_task.done():
+                verify_task.cancel()
             await client.aclose()
 
     app = FastAPI(

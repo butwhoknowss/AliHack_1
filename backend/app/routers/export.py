@@ -5,8 +5,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, Path, Query
 from fastapi.responses import Response
 
-from ..deps import get_power, get_store, get_variables
-from ..sources.nasa_power import NasaPowerSource
+from ..deps import get_sources, get_store, get_variables
 from ..storage.xlsx_store import XlsxStore
 from .analyze import ID_PATTERN, reload_analysis
 
@@ -20,10 +19,10 @@ async def export_analysis(
     analysis_id: str = Path(..., pattern=ID_PATTERN),
     format: Literal["xlsx", "csv"] = Query("xlsx"),
     variables: dict[str, dict] = Depends(get_variables),
-    power: NasaPowerSource = Depends(get_power),
+    sources: dict = Depends(get_sources),
     store: XlsxStore = Depends(get_store),
 ) -> Response:
-    res = await reload_analysis(analysis_id, variables, power, store)
+    res = await reload_analysis(analysis_id, variables, sources, store)
     units = res.variable.units
     trend_by_date = {p.date: p.value for p in res.trend_line}
     data = pd.DataFrame(

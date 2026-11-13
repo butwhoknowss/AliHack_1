@@ -12,6 +12,12 @@ services:
         value: 3.12.8
       - key: WEATHERAPI_KEY
         sync: false            # you type the key into the Render dashboard; never commit it
+      - key: EARTHDATA_USERNAME
+        sync: false            # NASA Earthdata login for Giovanni satellite variables (optional)
+      - key: EARTHDATA_PASSWORD
+        sync: false
+      - key: EARTHDATA_TOKEN
+        sync: false
       - key: CORS_ORIGINS
         sync: false            # e.g. https://your-site.netlify.app (only needed for direct calls)
       - key: DATA_DIR

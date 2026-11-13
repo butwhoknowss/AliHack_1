@@ -35,9 +35,42 @@ def power_payload(param: str, start: int, end: int, slope_per_year: float = 0.05
     }
 
 
+GIOVANNI_BASE = "https://api.giovanni.earthdata.nasa.gov"
+
+
+def giovanni_csv(start: int, end: int, slope_per_year: float = 0.1, base: float = 280.0,
+                 fill_months: tuple[str, ...] = (), fill: float = -9999.0) -> str:
+    """Synthetic Giovanni time-series CSV: metadata lines, header, monthly rows."""
+    rng = np.random.default_rng(3)
+    lines = [
+        "prod_name,time_series",
+        "param_name,TEST_VAR",
+        "unit_of_measure,K",
+        f"fill_value,{fill}",
+        "",
+        "Timestamp (UTC),Data",
+    ]
+    for y in range(start, end + 1):
+        for m in range(1, 13):
+            t = (y - start) + (m - 0.5) / 12
+            v = base + slope_per_year * t + 5 * np.sin(2 * np.pi * (m - 1) / 12) + rng.normal(0, 0.3)
+            key = f"{y}{m:02d}"
+            val = fill if key in fill_months else round(float(v), 3)
+            lines.append(f"{y}-{m:02d}-01T00:00:00,{val}")
+    return "\n".join(lines) + "\n"
+
+
 @pytest.fixture
 def settings(tmp_path) -> Settings:
-    return Settings(data_dir=str(tmp_path / "data"), weatherapi_key="test-key", cache_ttl_days=30)
+    # Explicit empty Earthdata credentials: tests must never use the developer's real .env login.
+    return Settings(data_dir=str(tmp_path / "data"), weatherapi_key="test-key", cache_ttl_days=30,
+                    earthdata_token="", earthdata_username="", earthdata_password="")
+
+
+@pytest.fixture
+def giovanni_settings(tmp_path) -> Settings:
+    return Settings(data_dir=str(tmp_path / "data"), weatherapi_key="test-key", cache_ttl_days=30,
+                    earthdata_token="", earthdata_username="tester", earthdata_password="secret")
 
 
 @pytest.fixture

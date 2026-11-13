@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 
-from ..deps import get_variables
+from ..deps import get_giovanni, get_variables
 from ..models import Variable
 from ..services.analysis import get_variable
+from ..sources.giovanni import GiovanniSource
 
 router = APIRouter(tags=["variables"])
 
@@ -12,6 +13,7 @@ async def list_variables(
     category: str | None = Query(None, max_length=40),
     q: str | None = Query(None, max_length=80),
     variables: dict[str, dict] = Depends(get_variables),
+    giovanni: GiovanniSource = Depends(get_giovanni),
 ) -> list[Variable]:
     out = []
     needle = (q or "").strip().lower()
@@ -20,10 +22,14 @@ async def list_variables(
             continue
         if needle and needle not in f"{row['id']} {row['name']} {row['definition']}".lower():
             continue
-        out.append(Variable(**row))
+        out.append(get_variable(variables, row["id"], giovanni))
     return out
 
 
 @router.get("/variables/{variable_id}", response_model=Variable)
-async def one_variable(variable_id: str, variables: dict[str, dict] = Depends(get_variables)) -> Variable:
-    return get_variable(variables, variable_id)
+async def one_variable(
+    variable_id: str,
+    variables: dict[str, dict] = Depends(get_variables),
+    giovanni: GiovanniSource = Depends(get_giovanni),
+) -> Variable:
+    return get_variable(variables, variable_id, giovanni)

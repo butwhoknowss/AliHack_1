@@ -7,13 +7,16 @@
 - **How much** is it changing (per decade, and in total)?
 - **Is the change "significant"**, or could it just be natural ups and downs?
 
-Built for high-school and college students and the curious public. It uses NASA Earth science data (NASA POWER, based on the MERRA-2 reanalysis) from 1981 to the last complete year.
+Built for high-school and college students and the curious public. It uses NASA Earth science data:
+- **NASA POWER** (based on the MERRA-2 reanalysis), from 1981 to the last complete year
+- satellite and land-model data through **NASA Giovanni** (GPM, OMI, AIRS, GLDAS), from 2000–2005 onward
 
 ---
 
 ## Features
 
-- 🔎 **Variable catalog with plain-English definitions**: 11 variables, each with its units and why it matters.
+- 🔎 **Variable catalog with plain-English definitions**: 11 NASA POWER variables, plus 6 🛰️ satellite variables from NASA Giovanni (GPM, OMI, AIRS, GLDAS). Each has its units, start year and why it matters.
+- 📚 **Resources panel** with the challenge's official NASA, NOAA, KNMI and CSA tools and guides.
 - 🗺️ **Pick any region**: click a point, draw a box (up to 5° × 5°), search a place name, or use the quick ideas (desert, rainforest, Arctic, big city).
 - 📈 **Interactive time series**: raw values or anomalies with the seasonal cycle removed, a 12-month running mean, the trend line, and a 95 % confidence band.
 - 🧮 **Trend statistics**:
@@ -77,7 +80,7 @@ Right-click **`frontend/index.html`** → **Open with Live Server**. It opens at
 ### 4. Run the tests
 
 ```bash
-pytest -q          # 29 tests, no internet needed (all services are mocked)
+pytest -q          # 43 tests, no internet needed (all services are mocked)
 ruff check .       # lint
 ```
 
@@ -93,7 +96,7 @@ Netlify only hosts static files, so the app is split across two services. You ca
 | API (`backend/`) | **Render** (free web service) | FastAPI + uvicorn |
 
 1. **Push this repo to GitHub.** `.env` stays on your computer.
-2. **Render:** sign in with GitHub, then go to **New → Blueprint** and pick this repo. Render reads `render.yaml`. When asked, enter your `WEATHERAPI_KEY`. After the deploy, note the URL, e.g. `https://earth-trend-detective-api.onrender.com`.
+2. **Render:** sign in with GitHub, then go to **New → Blueprint** and pick this repo. Render reads `render.yaml`. When asked, enter your `WEATHERAPI_KEY`, plus `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` if you want the satellite variables. After the deploy, note the URL, e.g. `https://earth-trend-detective-api.onrender.com`.
 3. **Edit `netlify.toml`:** replace `YOUR-RENDER-SERVICE` with your Render service name. Commit and push.
 4. **Netlify:** sign in with GitHub, then go to **Add new site → Import from Git** and pick this repo. `netlify.toml` already sets the publish folder (`frontend`) and forwards `/api/*` to Render. No build command is needed.
 
@@ -134,10 +137,76 @@ Before testing, the app (by default) **removes the seasonal cycle**. Otherwise "
 
 | Source | Used for | Notes |
 |---|---|---|
-| [NASA POWER](https://power.larc.nasa.gov/) | Long-term monthly and daily time series (1981 to the last complete year) | Meteorology from **MERRA-2** (NASA GMAO), radiation from CERES/FLASHFlux. No key needed. |
+| [NASA POWER](https://power.larc.nasa.gov/) | 11 variables, monthly or daily, from 1981 to the last complete year | Meteorology from **MERRA-2** (NASA GMAO), radiation from CERES/FLASHFlux. No key needed. |
+| [NASA Giovanni](https://giovanni.gsfc.nasa.gov/giovanni/) | 6 satellite and land-model variables (monthly) | GPM rainfall, OMI aerosols and ozone, AIRS temperature, GLDAS evaporation and runoff. **Needs a free NASA Earthdata login** (see below). Without one, these variables show as disabled. |
 | [WeatherAPI.com](https://www.weatherapi.com/) | Place search and current conditions | Needs a key in `.env`. Its free history only covers the last few days, so it is **not** used for trends. |
 
-Citation: *"These data were obtained from the NASA Langley Research Center (LaRC) POWER Project funded through the NASA Earth Science/Applied Science Program."*
+Citations:
+- *"These data were obtained from the NASA Langley Research Center (LaRC) POWER Project funded through the NASA Earth Science/Applied Science Program."*
+- *"Analyses and visualizations used in this study were produced with the Giovanni online data system, developed and maintained by the NASA GES DISC."*
+
+### The satellite variables
+
+All six were checked against the live Giovanni API.
+
+| Variable | Instrument / model | Units | Data from |
+|---|---|---|---|
+| Rainfall measured by satellite (GPM IMERG) | GPM IMERG | mm/day | 2001 |
+| Haze / aerosols in the air (OMI) | Aura OMI | AOD (no units) | 2005 |
+| Total ozone column (OMI) | Aura OMI | DU | 2005 |
+| Surface air temperature from space (AIRS) | Aqua AIRS | °C | 2003 |
+| Evaporation + plant transpiration (GLDAS) | GLDAS Noah | mm/day | 2000 |
+| Surface runoff (GLDAS): the closest thing to streamflow | GLDAS Noah | mm/day | 2000 |
+
+### Turning on the satellite variables (NASA Giovanni)
+
+1. Create a free account at https://urs.earthdata.nasa.gov/users/new.
+2. In your Earthdata profile, under **Applications → Authorized Apps**, approve **NASA GESDISC DATA ARCHIVE**. If you are asked to approve anything for Giovanni, accept that too.
+3. Add these lines to `.env`, then restart the backend (close and reopen `start-backend.bat`):
+   ```
+   EARTHDATA_USERNAME=your-username
+   EARTHDATA_PASSWORD=your-password
+   ```
+   - Quotes around the password are fine.
+   - Use your username and password, not a token. Giovanni rejected an Earthdata "Generate Token" token sent on its own. `EARTHDATA_TOKEN` is only tried if no username or password is set.
+4. Hover over the **● online** status (top right). It should say "NASA Giovanni: ok", and the 🛰️ variables become selectable.
+
+**If it still says "not working"**, the tooltip and the greyed-out variable's warning show the exact reason:
+
+| Message | What to do |
+|---|---|
+| "Earthdata rejected EARTHDATA_USERNAME/EARTHDATA_PASSWORD" | Check the spelling in `.env`. |
+| "Earthdata showed a login/approval page" | Do step 2, or log in once at https://giovanni.gsfc.nasa.gov/giovanni/. |
+| "does not recognise the data ID" | A data name in `seed.py` is wrong. The login is fine. |
+
+The backend checks the login once at startup, so restart it after changing `.env`. You can also open http://127.0.0.1:8000/api/health and look at `giovanni` and `giovanni_error`.
+
+Notes:
+- Giovanni's API only answers for single points, so boxes are averaged from up to 9 points. That makes box analyses a bit slower than NASA POWER.
+- Satellite variables are monthly only. Each has its own start year (2000–2005), and the form adjusts the start year for you.
+- The app signs in to Giovanni for you and keeps the sign-in for about a day, then renews it. Your password is only sent to NASA's Earthdata login server (`urs.earthdata.nasa.gov`).
+- MODIS aerosol data isn't offered by Giovanni's API, so haze comes from OMI instead.
+
+## Resources & learn more
+
+The dashboard's **📚 Resources & learn more** panel lists the challenge's official resources. Each one has a one-line note on how it relates to this tool.
+
+- **NASA:**
+  - Giovanni: *built in*
+  - Hydrology Time Series: *retired, so its GLDAS data now comes through Giovanni*
+  - AppEEARS
+  - SeaWiFS chlorophyll trend paper (Acker et al., 2009): *the same recipe as this app*
+- **NOAA:** Climate Data Online (station records)
+- **KNMI:** Climate Explorer
+- **Statistics guides:** trend tests; statistical significance
+- **CSA:**
+  - RADARSAT Constellation Mission
+  - Geo.ca
+  - SWOT: *launched in December 2022, so its record is too short for a 10-year trend yet*
+  - Ecosystem monitoring
+  - SAR Python tutorial
+
+The resource list lives in `backend/app/storage/seed.py` (`RESOURCES`).
 
 ---
 
@@ -152,8 +221,10 @@ Full design: **[Architecture.md](Architecture.md)**. Notes for contributors and 
 ## Limitations
 
 - Only linear trends are tested. Non-linear changes and sudden jumps are not modeled.
-- Region boxes are limited to 5° × 5° and averaged from up to 25 sample points (4 for daily data).
+- Region boxes are limited to 5° × 5°. They are averaged from up to 25 sample points (4 for daily data, 9 for satellite variables).
 - NASA POWER is a gridded reanalysis/satellite product with cells about 50 km across, not station measurements.
+- Satellite records start in 2000–2005, so their trends cover about 20–25 years. A real change may not reach "significant" yet.
+- The satellite variables depend on NASA Giovanni being online and on a working Earthdata login.
 - Statistical significance ≠ cause. A significant trend tells you *something* is changing, not *why*.
 
 ## Team

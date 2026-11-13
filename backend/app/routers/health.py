@@ -3,8 +3,9 @@ import time
 
 from fastapi import APIRouter, Depends, Request
 
-from ..deps import get_power, get_store, get_weather
+from ..deps import get_giovanni, get_power, get_store, get_weather
 from ..models import Health
+from ..sources.giovanni import GiovanniSource
 from ..sources.nasa_power import NasaPowerSource
 from ..sources.weatherapi import WeatherApiSource
 from ..storage.xlsx_store import XlsxStore
@@ -19,9 +20,13 @@ async def health(
     request: Request,
     power: NasaPowerSource = Depends(get_power),
     weather: WeatherApiSource = Depends(get_weather),
+    giovanni: GiovanniSource = Depends(get_giovanni),
     store: XlsxStore = Depends(get_store),
 ) -> Health:
-    """Liveness plus (cached for 5 minutes) upstream reachability."""
+    """Liveness plus (cached for 5 minutes) upstream reachability.
+
+    Giovanni is checked once at startup (main.py); its result is reported, not re-tested here.
+    """
     state = request.app.state
     cached = getattr(state, "health_cache", None)
     now = time.monotonic()
@@ -36,4 +41,7 @@ async def health(
         weatherapi=weather_ok,
         storage=storage_ok,
         weatherapi_configured=weather.configured,
+        giovanni_configured=giovanni.configured,
+        giovanni=giovanni.verified if giovanni.configured else False,
+        giovanni_error=(giovanni.last_error or None) if giovanni.verified is False else None,
     )

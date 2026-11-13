@@ -183,7 +183,8 @@
       const h = await ETD.api.health();
       el.textContent = h.nasa_power ? "● online" : "● online (NASA POWER unreachable)";
       el.className = "api-status " + (h.nasa_power ? "ok" : "warn");
-      el.title = `NASA POWER: ${h.nasa_power ? "ok" : "down"} · WeatherAPI: ${h.weatherapi ? "ok" : "off"} · storage: ${h.storage ? "ok" : "error"}`;
+      const gio = !h.giovanni_configured ? "no Earthdata login" : h.giovanni === null ? "checking…" : h.giovanni ? "ok" : `not working (${h.giovanni_error || "login rejected"})`;
+      el.title = `NASA POWER: ${h.nasa_power ? "ok" : "down"} · NASA Giovanni: ${gio} · WeatherAPI: ${h.weatherapi ? "ok" : "off"} · storage: ${h.storage ? "ok" : "error"}`;
       return true;
     } catch (err) {
       el.textContent = "● backend offline";
@@ -196,11 +197,31 @@
   let catalogLoaded = false;
   let reconnectTimer = null;
 
+  /** Resources panel, grouped by provider; every link opens in a new tab. */
+  function renderResources(list) {
+    const esc = ETD.wizard.escapeHtml;
+    const groups = {};
+    list.forEach((r) => (groups[r.provider] = groups[r.provider] || []).push(r));
+    $("resources-list").innerHTML = Object.keys(groups).map((provider) => `
+      <h3>${esc(provider)}</h3>
+      <ul class="resource-items">${groups[provider].map((r) => `
+        <li>
+          <a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a>
+          <span class="badge ${r.used_in_app ? "badge-used" : "badge-explore"}">${r.used_in_app ? "Used in this app" : "Explore further"}</span>
+          <span class="badge badge-kind">${esc(r.kind)}</span>
+          <p class="muted small">${esc(r.how_it_helps)}</p>
+        </li>`).join("")}
+      </ul>`).join("");
+  }
+
   async function loadCatalog() {
     try {
       const [vars, demos] = await Promise.all([ETD.api.variables(), ETD.api.demos()]);
       ETD.wizard.setVariables(vars);
       ETD.demos.setDemos(demos);
+      ETD.api.resources().then(renderResources).catch(() => {
+        $("resources-list").innerHTML = '<p class="muted">Resources could not be loaded.</p>';
+      });
       catalogLoaded = true;
       showError("");
       return true;

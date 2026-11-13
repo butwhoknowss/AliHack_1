@@ -225,6 +225,23 @@ select, input[type="number"], input[type="search"] {
 .learn dt { font-weight: 700; margin-top: 10px; }
 .learn dd { margin: 2px 0 0; color: var(--muted); }
 
+/* ---------- badges + resources ---------- */
+.badge {
+  display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); vertical-align: middle; margin-left: 4px;
+}
+.badge-line { margin: 0 0 4px; }
+.badge-line .badge { margin-left: 0; }
+.badge-sat { color: var(--blue); border-color: var(--blue); }
+.badge-used { color: var(--ok); border-color: var(--ok); }
+.badge-explore { color: var(--muted); }
+.resources-list h3 { margin-top: 14px; }
+.resource-items { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 10px; }
+.resource-items li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.resource-items p { margin: 4px 0 0; }
+.learn a, .resource-items a { color: var(--primary); font-weight: 600; }
+select option:disabled { color: var(--muted); }
+
 .footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 8px 16px 24px; }
 
 /* Leaflet controls should sit under the sticky header */

@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..models.requests import Region
+from ..sources.giovanni import GiovanniSource
 from ..sources.nasa_power import NasaPowerSource
 from ..storage.xlsx_store import XlsxStore
 from .region import sample_points
@@ -38,28 +39,42 @@ def weighted_mean(series_list: list[pd.Series], weights: list[float], index: pd.
     return pd.Series(out, index=index)
 
 
+def max_points_per_side(provider: str, resolution: str) -> int:
+    """Giovanni is point-only and slow -> 3x3; POWER daily payloads are large -> 2x2."""
+    if provider == "giovanni":
+        return 3
+    return 5 if resolution == "monthly" else 2
+
+
 async def regional_series(
-    source: NasaPowerSource,
+    sources: dict[str, NasaPowerSource | GiovanniSource],
     store: XlsxStore,
-    variable_id: str,
+    variable: dict,
     region: Region,
     start_year: int,
     end_year: int,
     resolution: str,
 ) -> tuple[pd.Series, int]:
     """Return (regional series on a complete date index, number of sample points)."""
-    points = sample_points(region, max_side=5 if resolution == "monthly" else 2)
+    provider = variable.get("provider", "power")
+    source = sources[provider]
+    variable_id = variable["id"]
+    points = sample_points(region, max_side=max_points_per_side(provider, resolution))
     keys = [cache_key(source.name, variable_id, la, lo, resolution, start_year, end_year) for la, lo, _ in points]
 
     cached = await asyncio.gather(*(store.aget_cached(k, resolution) for k in keys))
     missing = [i for i, s in enumerate(cached) if s is None]
 
-    fetched = await asyncio.gather(
-        *(
-            source.fetch_point(variable_id, points[i][0], points[i][1], start_year, end_year, resolution)
-            for i in missing
-        )
-    )
+    def fetch(i: int):
+        lat, lon = points[i][0], points[i][1]
+        if provider == "giovanni":
+            return source.fetch_point(
+                variable_id, lat, lon, start_year, end_year, resolution,
+                provider_id=variable["provider_id"], scale=variable["scale"], offset=variable["offset"],
+            )
+        return source.fetch_point(variable_id, lat, lon, start_year, end_year, resolution)
+
+    fetched = await asyncio.gather(*(fetch(i) for i in missing))
     results: list[pd.Series] = list(cached)
     new_entries = []
     for i, s in zip(missing, fetched, strict=True):

@@ -18,6 +18,19 @@ class Variable(BaseModel):
     example_question: str
     source: str
     seasonal: bool
+    provider: Literal["power", "giovanni"] = "power"
+    first_year: int = 1981
+    available: bool = True          # False when the provider needs credentials that are missing
+    unavailable_reason: str | None = None
+
+
+class Resource(BaseModel):
+    title: str
+    provider: str
+    kind: str
+    url: str
+    how_it_helps: str
+    used_in_app: bool
 
 
 class SeriesPoint(BaseModel):
@@ -130,3 +143,6 @@ class Health(BaseModel):
     weatherapi: bool
     storage: bool
     weatherapi_configured: bool
+    giovanni_configured: bool = False
+    giovanni: bool | None = None     # None = credentials present but not checked yet
+    giovanni_error: str | None = None  # why the Giovanni login check failed (no secrets)

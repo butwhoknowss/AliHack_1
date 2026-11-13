@@ -20,7 +20,7 @@ from ..models import (
     TrendResult,
     Variable,
 )
-from ..sources.nasa_power import NasaPowerSource
+from ..sources.giovanni import GiovanniSource
 from ..storage.xlsx_store import XlsxStore
 from .explain import build_hints, build_verdict
 from .series import regional_series, to_monthly
@@ -28,7 +28,17 @@ from .trend import analyze_series
 
 MAX_MISSING_FRACTION = 0.2
 # Temperatures in °C are not ratio-scale, so "percent change" would be meaningless.
-NON_RATIO_VARIABLES = {"T2M", "T2M_MAX", "T2M_MIN"}
+NON_RATIO_VARIABLES = {"T2M", "T2M_MAX", "T2M_MIN", "AIRS_TSURF"}
+
+NEEDS_LOGIN = (
+    "This satellite variable comes from NASA Giovanni, which needs a free NASA Earthdata login. "
+    "Add EARTHDATA_USERNAME and EARTHDATA_PASSWORD to .env and restart the backend (see README)."
+)
+LOGIN_REJECTED = (
+    "NASA Giovanni could not be used with the Earthdata login in .env. Use EARTHDATA_USERNAME + "
+    "EARTHDATA_PASSWORD (a token alone may not work), log in once at giovanni.gsfc.nasa.gov to approve "
+    "the Giovanni app, then restart the backend (see README)."
+)
 
 
 def _clean(x: float | None, nd: int = 4) -> float | None:
@@ -38,25 +48,52 @@ def _clean(x: float | None, nd: int = 4) -> float | None:
     return None if math.isnan(x) or math.isinf(x) else round(x, nd)
 
 
-def get_variable(variables: dict[str, dict], variable_id: str) -> Variable:
+def availability(row: dict, giovanni: GiovanniSource | None) -> tuple[bool, str | None]:
+    """Is this variable usable right now? Giovanni variables need working Earthdata credentials."""
+    if row.get("provider", "power") != "giovanni":
+        return True, None
+    if giovanni is None or not giovanni.configured:
+        return False, NEEDS_LOGIN
+    if giovanni.verified is False:
+        err = giovanni.last_error
+        return False, (f"{LOGIN_REJECTED} Details: {err}" if err else LOGIN_REJECTED)
+    return True, None
+
+
+def get_variable(variables: dict[str, dict], variable_id: str, giovanni: GiovanniSource | None = None) -> Variable:
     row = variables.get(variable_id)
     if row is None:
         raise NotFoundError(f"Unknown variable '{variable_id}'.")
-    return Variable(**row)
+    ok, reason = availability(row, giovanni)
+    return Variable(**row, available=ok, unavailable_reason=reason)
+
+
+def check_request_fits_variable(variable: Variable, start_year: int, resolution: str) -> None:
+    """Rules that depend on the chosen variable (raise DataQualityError -> HTTP 422)."""
+    if not variable.available:
+        raise DataQualityError(variable.unavailable_reason or "This variable is not available right now.")
+    if start_year < variable.first_year:
+        raise DataQualityError(
+            f"'{variable.name}' data start in {variable.first_year}. Choose {variable.first_year} or later."
+        )
+    if variable.provider == "giovanni" and resolution != "monthly":
+        raise DataQualityError("Satellite variables (NASA Giovanni) are available as monthly data only.")
 
 
 async def run_analysis(
     req: AnalyzeRequest,
     *,
     variables: dict[str, dict],
-    source: NasaPowerSource,
+    sources: dict,
     store: XlsxStore,
     analysis_id: str | None = None,
 ) -> AnalyzeResponse:
-    variable = get_variable(variables, req.variable_id)
+    variable = get_variable(variables, req.variable_id, sources.get("giovanni"))
+    check_request_fits_variable(variable, req.start_year, req.resolution)
+    source = sources[variable.provider]
 
     series, n_points = await regional_series(
-        source, store, req.variable_id, req.region, req.start_year, req.end_year, req.resolution
+        sources, store, variables[req.variable_id], req.region, req.start_year, req.end_year, req.resolution
     )
     monthly = to_monthly(series) if req.resolution == "daily" else series
     monthly = monthly.reindex(pd.date_range(f"{req.start_year}-01-01", f"{req.end_year}-12-01", freq="MS"))

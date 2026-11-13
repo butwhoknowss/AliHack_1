@@ -30,8 +30,11 @@ ANALYSES_FILE = "analyses.xlsx"
 VARIABLE_COLUMNS = [
     "id", "name", "category", "units", "definition",
     "why_it_matters", "example_question", "source", "seasonal",
+    "provider", "provider_id", "first_year", "scale", "offset",
 ]
 DEMO_COLUMNS = ["demo_id", "title", "story", "request_json", "compare_request_json", "narration_steps_json"]
+RESOURCE_COLUMNS = ["title", "provider", "kind", "url", "how_it_helps", "used_in_app"]
+CATALOG_META_COLUMNS = ["key", "value"]
 CACHE_META_COLUMNS = ["cache_key", "source", "variable_id", "lat", "lon", "resolution", "start_year", "end_year", "fetched_at", "n_rows"]
 CACHE_SERIES_COLUMNS = ["cache_key", "date", "value"]
 ANALYSIS_COLUMNS = [
@@ -100,18 +103,48 @@ def _concat(a: pd.DataFrame, b: pd.DataFrame) -> pd.DataFrame:
 
 # --------------------------------------------------------------------------- catalog
 
-def load_catalog(data_dir: Path) -> tuple[list[dict], list[dict]]:
-    """Return (variables, demos) as plain dicts from catalog.xlsx."""
+def _as_bool(v) -> bool:
+    return str(v).strip().lower() in {"true", "1", "yes"}
+
+
+def _as_float(v, default: float) -> float:
+    try:
+        f = float(v)
+        return default if pd.isna(f) else f
+    except (TypeError, ValueError):
+        return default
+
+
+def read_catalog_version(data_dir: Path) -> str | None:
+    """The SEED_VERSION stored in catalog.xlsx (None if missing/old)."""
+    meta = _sheet(read_workbook(data_dir / CATALOG_FILE), "meta", CATALOG_META_COLUMNS)
+    match = meta[meta["key"].astype(str) == "seed_version"]
+    return None if match.empty else str(match.iloc[-1]["value"]).strip()
+
+
+def load_catalog(data_dir: Path) -> tuple[list[dict], list[dict], list[dict]]:
+    """Return (variables, demos, resources) as plain dicts from catalog.xlsx."""
     book = read_workbook(data_dir / CATALOG_FILE)
     vars_df = _sheet(book, "variables", VARIABLE_COLUMNS)
     demos_df = _sheet(book, "demos", DEMO_COLUMNS)
+    res_df = _sheet(book, "resources", RESOURCE_COLUMNS)
 
     variables: list[dict] = []
     for row in vars_df.to_dict(orient="records"):
         row = {k: ("" if pd.isna(v) else v) for k, v in row.items()}
         row["id"] = str(row["id"])
-        row["seasonal"] = str(row["seasonal"]).strip().lower() in {"true", "1", "yes"}
+        row["seasonal"] = _as_bool(row["seasonal"])
+        row["provider"] = str(row["provider"] or "power")
+        row["provider_id"] = str(row["provider_id"] or row["id"])
+        row["first_year"] = int(_as_float(row["first_year"], 1981))
+        row["scale"] = _as_float(row["scale"], 1.0)
+        row["offset"] = _as_float(row["offset"], 0.0)
         variables.append(row)
+
+    resources = [
+        {k: ("" if pd.isna(v) else v) for k, v in r.items()} | {"used_in_app": _as_bool(r["used_in_app"])}
+        for r in res_df.to_dict(orient="records")
+    ]
 
     demos: list[dict] = []
     for row in demos_df.to_dict(orient="records"):
@@ -128,10 +161,13 @@ def load_catalog(data_dir: Path) -> tuple[list[dict], list[dict]]:
                 "narration_steps": json.loads(row["narration_steps_json"]),
             }
         )
-    return variables, demos
+    return variables, demos, resources
 
 
-def write_catalog(data_dir: Path, variables: list[dict], demos: list[dict]) -> None:
+def write_catalog(
+    data_dir: Path, variables: list[dict], demos: list[dict], resources: list[dict] | None = None,
+    version: str = "",
+) -> None:
     vars_df = pd.DataFrame(variables, columns=VARIABLE_COLUMNS)
     demo_rows = [
         {
@@ -146,7 +182,12 @@ def write_catalog(data_dir: Path, variables: list[dict], demos: list[dict]) -> N
     ]
     write_workbook(
         data_dir / CATALOG_FILE,
-        {"variables": vars_df, "demos": pd.DataFrame(demo_rows, columns=DEMO_COLUMNS)},
+        {
+            "variables": vars_df,
+            "demos": pd.DataFrame(demo_rows, columns=DEMO_COLUMNS),
+            "resources": pd.DataFrame(resources or [], columns=RESOURCE_COLUMNS),
+            "meta": pd.DataFrame([{"key": "seed_version", "value": version}], columns=CATALOG_META_COLUMNS),
+        },
     )
 
 

@@ -20,14 +20,35 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
+  const currentVariable = () => variables.find((x) => x.id === $("variable-select").value);
+
   function renderVariableCard() {
-    const v = variables.find((x) => x.id === $("variable-select").value);
+    const v = currentVariable();
     if (!v) { $("variable-card").innerHTML = ""; return; }
+    const satellite = v.provider === "giovanni"
+      ? `<p class="badge-line"><span class="badge badge-sat">🛰️ Satellite data via NASA Giovanni</span></p>` : "";
+    const warn = !v.available && v.unavailable_reason
+      ? `<p class="warn small">⚠️ ${escapeHtml(v.unavailable_reason)}</p>` : "";
     $("variable-card").innerHTML = `
+      ${satellite}
       <p class="var-def">${escapeHtml(v.definition)}</p>
       <p><strong>Why it matters:</strong> ${escapeHtml(v.why_it_matters)}</p>
-      <p class="muted small">Units: ${escapeHtml(v.units)} · Source: ${escapeHtml(v.source)}</p>
-      <p class="muted small">💡 Try: <em>${escapeHtml(v.example_question)}</em></p>`;
+      <p class="muted small">Units: ${escapeHtml(v.units)} · Data from ${escapeHtml(v.first_year)} · Source: ${escapeHtml(v.source)}</p>
+      <p class="muted small">💡 Try: <em>${escapeHtml(v.example_question)}</em></p>
+      ${warn}`;
+  }
+
+  /** Keep the year boxes inside the chosen variable's record. */
+  function onVariableChange() {
+    renderVariableCard();
+    const v = currentVariable();
+    if (!v) return;
+    $("start-year").min = v.first_year;
+    const start = parseInt($("start-year").value, 10);
+    if (!Number.isInteger(start) || start < v.first_year) $("start-year").value = v.first_year;
+    const daily = $("resolution").querySelector('option[value="daily"]');
+    daily.disabled = v.provider === "giovanni";
+    if (daily.disabled && $("resolution").value === "daily") $("resolution").value = "monthly";
   }
 
   function setVariables(list) {
@@ -42,12 +63,14 @@
       groups[cat].forEach((v) => {
         const o = document.createElement("option");
         o.value = v.id;
-        o.textContent = `${v.name} (${v.units})`;
+        o.textContent = `${v.provider === "giovanni" ? "🛰️ " : ""}${v.name} (${v.units})` +
+          (v.available ? "" : " — needs NASA Earthdata login");
+        o.disabled = !v.available;
         og.appendChild(o);
       });
       sel.appendChild(og);
     });
-    renderVariableCard();
+    onVariableChange();
   }
 
   function regionText(r) {
@@ -74,12 +97,15 @@
   function buildRequest() {
     const variableId = $("variable-select").value;
     if (!variableId) throw new Error("Choose a variable first (step 1).");
+    const v = currentVariable();
+    if (v && !v.available) throw new Error(v.unavailable_reason || "This variable is not available right now.");
     if (!region) throw new Error("Choose a region: click the map, draw a box, or search a place (step 2).");
     const start = parseInt($("start-year").value, 10);
     const end = parseInt($("end-year").value, 10);
     const last = lastCompleteYear();
     if (!Number.isInteger(start) || !Number.isInteger(end)) throw new Error("Enter both years (step 3).");
-    if (start < ETD.config.FIRST_YEAR) throw new Error(`Data start in ${ETD.config.FIRST_YEAR}.`);
+    const firstYear = v ? v.first_year : ETD.config.FIRST_YEAR;
+    if (start < firstYear) throw new Error(`Data for this variable start in ${firstYear}.`);
     if (end > last) throw new Error(`The last complete year of data is ${last}.`);
     if (end - start + 1 < ETD.config.MIN_YEARS) throw new Error(`Choose at least ${ETD.config.MIN_YEARS} years.`);
     return {
@@ -96,8 +122,8 @@
   /** Fill the whole form from an AnalyzeRequest-like object (used by demos). */
   function fill(req) {
     $("variable-select").value = req.variable_id;
-    renderVariableCard();
     setYears(req.start_year, req.end_year || lastCompleteYear());
+    onVariableChange();
     setDeseasonalize(req.deseasonalize !== false);
     $("resolution").value = req.resolution || "monthly";
     $("alpha").value = String(req.alpha || 0.05) === "0.1" ? "0.10" : String(req.alpha || 0.05);
@@ -136,7 +162,7 @@
     const last = lastCompleteYear();
     ["start-year", "end-year"].forEach((id) => { $(id).max = last; });
     setYears(ETD.config.FIRST_YEAR, last);
-    $("variable-select").addEventListener("change", renderVariableCard);
+    $("variable-select").addEventListener("change", onVariableChange);
     $("search-form").addEventListener("submit", onSearch);
     document.querySelectorAll(".chip[data-place]").forEach((chip) =>
       chip.addEventListener("click", () => ETD.map.setRegion(PRESETS[chip.dataset.place]))

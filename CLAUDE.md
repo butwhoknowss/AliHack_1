@@ -15,6 +15,7 @@ Guidance for Claude Code (and humans) working in this repository.
 - **Storage:** **.xlsx files** in `data/` via openpyxl/pandas. **No database.**
 - **Data:**
   - **NASA POWER**: long time series, no key needed.
+  - **NASA Giovanni**: GPM, OMI, AIRS and GLDAS. Optional; needs a free Earthdata login.
   - **WeatherAPI.com**: search and current weather. The key is in `.env`.
 - **Hosting:**
   - Local: **Live Server** (:5500) for the frontend, uvicorn (:8000) for the API.
@@ -39,7 +40,7 @@ backend/app/
   main.py config.py errors.py deps.py
   models/    pydantic request/response schemas
   routers/   thin HTTP layer, all under /api
-  sources/   nasa_power.py, weatherapi.py (DataSource protocol in base.py)
+  sources/   nasa_power.py, giovanni.py, weatherapi.py (DataSource protocol in base.py)
   services/  region.py series.py trend.py explain.py analysis.py
   storage/   xlsx_store.py (ONLY place touching .xlsx), seed.py (default catalog + demos)
 frontend/    index.html, css/styles.css, js/{config,api,map,charts,wizard,demos,app}.js
@@ -50,7 +51,7 @@ netlify.toml render.yaml .vscode/settings.json
 
 ## Rules
 
-1. **Secrets:** the WeatherAPI key lives only in `.env` (gitignored) and in the Render dashboard. Never hardcode it, print it, or put it in docs or tests. Never log URLs that contain `key=`. `httpx` logging is silenced for this reason.
+1. **Secrets:** the WeatherAPI key and the Earthdata login live only in `.env` (gitignored) and in the Render dashboard. Never hardcode it, print it, or put it in docs or tests. Never log URLs that contain `key=`. `httpx` logging is silenced for this reason.
 2. **Storage:** all `.xlsx` IO goes through `storage/xlsx_store.py`, using the file lock, a temp file and `os.replace`. Call it from async code via the `a*` wrappers.
 3. **Single worker:** never run uvicorn with `--workers` above 1.
 4. **Thin routers:** validation lives in pydantic models, logic in `services/`, upstream calls in `sources/`. Raise the errors in `errors.py`, not HTTPException, from services.
@@ -70,6 +71,17 @@ netlify.toml render.yaml .vscode/settings.json
   - The fill value is **−999**; convert it to NaN.
   - AG community units: radiation is **MJ/m²/day**, not kWh.
 - **WeatherAPI.com history is too short for trends.** Use it only for `search.json` and `current.json`.
+- **NASA Giovanni** (`sources/giovanni.py`):
+  - **Point-only** API: boxes are capped at 3 × 3 points.
+  - Monthly resolution only.
+  - Each variable has its own `first_year`.
+  - Values are converted with `value × scale + offset` from the catalog (e.g. AIRS kelvin −273.15, GPM mm/hr × 24).
+- **Earthdata login for Giovanni:**
+  - Use `EARTHDATA_USERNAME`/`PASSWORD`, which drives the `/signin` OAuth flow. An Earthdata user token alone was rejected in testing.
+  - Basic auth must only ever be sent to `urs.earthdata.nasa.gov`.
+  - Giovanni variables are disabled (`available=false`) until the startup `verify()` succeeds.
+  - Tests must pass empty Earthdata settings so they never use the real `.env` login.
+- **Giovanni data IDs** in `seed.py` were confirmed live (2026-11-13). `/gettoken` returns **JSON** `{expires_in, token}`, not a bare string. An unknown data ID returns **HTTP 403** "Data parameter is invalid" (not an auth error). MODIS MOD08 is not served by the API.
 - **Sen's slope** from pymannkendall is per time step:
   - ×120 for Hamed-Rao on monthly anomalies
   - ×10 for `seasonal_test` (per year)
@@ -83,7 +95,7 @@ netlify.toml render.yaml .vscode/settings.json
 - **Windows:** an `.xlsx` open in Excel is locked, so close it while the server runs.
 - **Windows + `--reload`:** the real server is a child process (`multiprocessing spawn_main`). Killing only the parent leaves port 8000 held by an orphan, so kill the whole tree or use Ctrl+C.
 - **Frontend reconnect:** if the backend is offline at page load, `app.js` polls every 5 s and loads the catalog once the backend is up.
-- **Catalog changes:** after editing `seed.py`, delete `data/catalog.xlsx` and restart.
+- **Catalog changes:** after editing `seed.py` (variables, demos or `RESOURCES`), bump `SEED_VERSION`. `catalog.xlsx` is rebuilt at the next startup.
 - **Netlify:** before deploying, replace `YOUR-RENDER-SERVICE` in `netlify.toml`.
 
 ## Git

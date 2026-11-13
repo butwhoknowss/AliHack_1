@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     weatherapi_key: str = ""
     nasa_power_base_url: str = "https://power.larc.nasa.gov/api"
     weatherapi_base_url: str = "https://api.weatherapi.com/v1"
+    # NASA Giovanni (GPM, OMI, AIRS, GLDAS). Needs a free NASA Earthdata Login.
+    giovanni_base_url: str = "https://api.giovanni.earthdata.nasa.gov"
+    earthdata_token: str = ""       # Earthdata Login user token (urs.earthdata.nasa.gov -> Generate Token)
+    earthdata_username: str = ""    # alternative: username + password -> Giovanni /signin
+    earthdata_password: str = ""
     data_dir: str = "./data"
     cache_ttl_days: int = 30
     http_timeout_seconds: float = 60.0

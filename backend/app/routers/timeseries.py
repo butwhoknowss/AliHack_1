@@ -4,12 +4,11 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
-from ..deps import get_power, get_store, get_variables
+from ..deps import get_sources, get_store, get_variables
 from ..models import Region, SeriesPoint, TimeseriesResponse
 from ..models.requests import FIRST_YEAR, last_complete_year
-from ..services.analysis import get_variable
+from ..services.analysis import check_request_fits_variable, get_variable
 from ..services.series import regional_series
-from ..sources.nasa_power import NasaPowerSource
 from ..storage.xlsx_store import XlsxStore
 
 router = APIRouter(tags=["timeseries"])
@@ -31,11 +30,12 @@ async def timeseries(
     east: float | None = Query(None, ge=-180, le=180),
     name: str | None = Query(None, max_length=120),
     variables: dict[str, dict] = Depends(get_variables),
-    power: NasaPowerSource = Depends(get_power),
+    sources: dict = Depends(get_sources),
     store: XlsxStore = Depends(get_store),
 ) -> TimeseriesResponse:
     """Raw regional series (no statistics). Daily requests are limited to 10 years."""
-    variable = get_variable(variables, variable_id)
+    variable = get_variable(variables, variable_id, sources.get("giovanni"))
+    check_request_fits_variable(variable, start_year, resolution)
     if end_year > last_complete_year() or end_year < start_year:
         raise HTTPException(422, f"end_year must be between start_year and {last_complete_year()}.")
     if resolution == "daily" and end_year - start_year + 1 > MAX_DAILY_YEARS:
@@ -46,7 +46,9 @@ async def timeseries(
     except ValidationError as exc:
         raise HTTPException(422, exc.errors()[0]["msg"]) from exc
 
-    series, n_points = await regional_series(power, store, variable_id, region, start_year, end_year, resolution)
+    series, n_points = await regional_series(
+        sources, store, variables[variable_id], region, start_year, end_year, resolution
+    )
     points = [
         SeriesPoint(date=ts.date(), value=None if math.isnan(v) else round(float(v), 4))
         for ts, v in series.items()
@@ -58,5 +60,5 @@ async def timeseries(
         series=points,
         missing_fraction=round(float(series.isna().mean()), 4),
         n_sample_points=n_points,
-        source_citation=power.citation,
+        source_citation=sources[variable.provider].citation,
     )

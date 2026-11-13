@@ -2,6 +2,7 @@
 
 from fastapi import Request
 
+from .sources.giovanni import GiovanniSource
 from .sources.nasa_power import NasaPowerSource
 from .sources.weatherapi import WeatherApiSource
 from .storage.xlsx_store import XlsxStore
@@ -19,8 +20,21 @@ def get_weather(request: Request) -> WeatherApiSource:
     return request.app.state.weather
 
 
+def get_giovanni(request: Request) -> GiovanniSource:
+    return request.app.state.giovanni
+
+
+def get_sources(request: Request) -> dict:
+    """Time-series sources by catalog provider name."""
+    return {"power": request.app.state.power, "giovanni": request.app.state.giovanni}
+
+
 def get_variables(request: Request) -> dict[str, dict]:
     return request.app.state.variables
+
+
+def get_resources(request: Request) -> list[dict]:
+    return request.app.state.resources
 
 
 def get_demos(request: Request) -> list[dict]:
