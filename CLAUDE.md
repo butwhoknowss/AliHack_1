@@ -41,7 +41,7 @@ backend/app/
   models/    pydantic request/response schemas
   routers/   thin HTTP layer, all under /api
   sources/   nasa_power.py, giovanni.py, weatherapi.py (DataSource protocol in base.py)
-  services/  region.py series.py trend.py explain.py analysis.py
+  services/  region.py series.py trend.py explain.py analysis.py next_steps.py
   storage/   xlsx_store.py (ONLY place touching .xlsx), seed.py (default catalog + demos)
 frontend/    index.html, css/styles.css, js/{config,api,map,charts,wizard,demos,app}.js
 data/        catalog.xlsx (generated); cache.xlsx + analyses.xlsx (runtime, gitignored)
@@ -95,7 +95,8 @@ netlify.toml render.yaml .vscode/settings.json
 - **Windows:** an `.xlsx` open in Excel is locked, so close it while the server runs.
 - **Windows + `--reload`:** the real server is a child process (`multiprocessing spawn_main`). Killing only the parent leaves port 8000 held by an orphan, so kill the whole tree or use Ctrl+C.
 - **Frontend reconnect:** if the backend is offline at page load, `app.js` polls every 5 s and loads the catalog once the backend is up.
-- **Catalog changes:** after editing `seed.py` (variables, demos or `RESOURCES`), bump `SEED_VERSION`. `catalog.xlsx` is rebuilt at the next startup.
+- **Catalog changes:** after editing `seed.py` (variables, demos or `RESOURCES`), bump `SEED_VERSION`. `catalog.xlsx` is rebuilt at the next startup. The stored version also includes a hash of the sheet columns, so a column change in `xlsx_store.py` forces a rebuild too.
+- **Resources:** each one needs a unique `key`, a `step` from `RESOURCE_STEPS` and `related` links to existing keys (a test checks this). `services/next_steps.py` refers to resources by `key`.
 - **Netlify:** before deploying, replace `YOUR-RENDER-SERVICE` in `netlify.toml`.
 
 ## Git

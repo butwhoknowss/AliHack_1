@@ -46,6 +46,7 @@
     variables: () => getJson("/api/variables"),
     demos: () => getJson("/api/demos"),
     resources: () => getJson("/api/resources"),
+    resourceSteps: () => getJson("/api/resources/steps"),
     searchPlaces: (q) => getJson("/api/locations/search?q=" + encodeURIComponent(q)),
     currentWeather: (lat, lon) =>
       getJson(`/api/weather/current?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`),

@@ -75,7 +75,7 @@ Hackathon_1/
 │   ├── models/responses.py    # Variable, SeriesPoint, OLSResult, MannKendallResult, TrendResult, AnalyzeResponse, ...
 │   ├── routers/               # health, variables, resources, locations, weather, timeseries, analyze, demos, export
 │   ├── sources/               # base.py (DataSource), nasa_power.py, giovanni.py, weatherapi.py
-│   ├── services/              # region.py, series.py, trend.py, explain.py, analysis.py
+│   ├── services/              # region.py, series.py, trend.py, explain.py, analysis.py, next_steps.py
 │   └── storage/               # xlsx_store.py (ONLY .xlsx IO), seed.py (default catalog)
 ├── frontend/
 │   ├── index.html
@@ -115,9 +115,10 @@ Base path: `/api`. Errors always look like `{"detail": "<human-readable message>
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/health` | `{status, nasa_power, weatherapi, storage, weatherapi_configured}`. Upstream checks are cached for 5 minutes. |
+| GET | `/api/health` | `{status, nasa_power, weatherapi, storage, weatherapi_configured, giovanni_configured, giovanni, giovanni_error}`. Upstream checks are cached for 5 minutes. |
 | GET | `/api/variables?category=&q=` | Catalog list, with optional filters. Each variable includes `provider` (`power`/`giovanni`), `first_year`, `available` and `unavailable_reason`. |
-| GET | `/api/resources` | Official challenge resources: `{title, provider, kind, url, how_it_helps, used_in_app}` |
+| GET | `/api/resources` | Official challenge resources: `{key, step, topics, title, provider, kind, url, how_it_helps, used_in_app, related: [{key, why}]}` |
+| GET | `/api/resources/steps` | The detective workflow the resources are grouped by: `[{step, title, intro}]` (data → test → check → explain) |
 | GET | `/api/variables/{id}` | One variable (404 if unknown) |
 | GET | `/api/locations/search?q=` | Place name → `[{name, region, country, lat, lon}]` (404 if nothing matches) |
 | GET | `/api/weather/current?lat=&lon=` | Current conditions |
@@ -166,6 +167,7 @@ class AnalyzeRequest(BaseModel):
 | `trend.significant` / `agreement` | `significant` is true only when both tests have p < α. `agreement` is one of `both`, `ols_only`, `mk_only`, `neither`. |
 | `trend.verdict`, `trend.hints[]` | Plain-language text |
 | `missing_fraction`, `n_sample_points`, `source_citation`, `created_at` | |
+| `next_steps` | Up to 4 `{key, title, url, step, why}`: challenge resources chosen for this variable, place and result (`services/next_steps.py`). Added by `POST /api/analyze` and `GET /api/analyses/{id}`. |
 
 ### 5.4 Status codes
 
@@ -253,7 +255,41 @@ At startup the catalog is created, or **rebuilt automatically when its stored `s
 
 ### 6.6 Official resources (`RESOURCES` → `GET /api/resources`)
 
-There are 13 entries from the challenge's Resources tab, grouped by provider (NASA, NOAA, KNMI, Statistics guides, CSA). Each URL was checked to return HTTP 200 when it was added. Two original links were replaced with verified equivalents:
+There are 13 entries from the challenge's Resources tab. Each URL was checked to return HTTP 200 when it was added.
+
+**How the resources relate.** They are not a flat list. Each one fits one step of a trend investigation (`RESOURCE_STEPS`), and the steps are what the dashboard panel groups by:
+
+| Step | Resources | Role |
+|---|---|---|
+| 1 · data | Giovanni, Hydrology Time Series, AppEEARS | Turn satellite or model data for a place into a time series |
+| 2 · test | trend-tests article, significance guide, SeaWiFS paper | How to decide whether a trend is real (the paper is a worked NASA example of the same recipe) |
+| 3 · check | NOAA CDO, KNMI Climate Explorer | Independent cross-checks: station records and other datasets |
+| 4 · explain | RCM, SWOT, Geo.ca, ecosystems page, SAR tutorial | Why a change matters, plus Canadian data and missions |
+
+The key cross-links are stored per resource as `related: [[key, why], ...]` (shown as "Connects to:" in the panel):
+- **Giovanni ↔ Hydrology Time Series:** Giovanni replaced the retired tool for GLDAS data.
+- **Giovanni ↔ SeaWiFS paper:** the paper built its series in Giovanni.
+- **Giovanni ↔ AppEEARS:** coarse long series vs. fine land detail; AppEEARS serves MODIS, which Giovanni's API doesn't.
+- **CDO ↔ KNMI:** two independent cross-checks.
+- **Trend tests ↔ significance guide ↔ SeaWiFS paper:** theory, basics, worked example.
+- **RCM ↔ SAR tutorial / ecosystems page / Geo.ca:** the radar mission, how to use its images, what it monitors, and Canadian context.
+- **SWOT ↔ Hydrology / significance guide:** measured vs. modelled water, and why a record from 2022 is too short for a trend.
+
+`tests/test_next_steps.py` checks that every link points to an existing resource.
+
+**Next steps after an analysis** (`services/next_steps.py`). The same relationships drive up to 4 suggestions per result, each with a reason written for that case:
+- Station-measurable variables (temperature, rain, humidity, wind, pressure) → CDO first.
+- The verdict picks the statistics resource:
+  - "neither" → significance guide ("not significant ≠ no change")
+  - mixed → trend-tests article (why the tests differ)
+  - both → trend-tests article
+- Giovanni variables → Giovanni (map the whole region).
+- Soil moisture and evaporation → AppEEARS.
+- Runoff → SWOT; other Giovanni water variables → Hydrology Time Series.
+- A region in or near Canada (rough box test, no borders file) → Geo.ca and RCM.
+- Then KNMI, then the SeaWiFS paper when seasons were removed.
+
+Two original links were replaced with verified equivalents:
 - The Hydrology Data Rods service redirects to a GES DISC notice that it has been discontinued. It is listed as retired, and GLDAS data now comes through Giovanni.
 - The RCM open-data page returned 404, so the entry links to the CSA RADARSAT page instead.
 
@@ -269,8 +305,8 @@ There are 13 entries from the challenge's Resources tab, grouped by provider (NA
 |---|---|---|
 | `catalog.xlsx` | `variables` | id, name, category, units, definition, why_it_matters, example_question, source, seasonal, provider, provider_id, first_year, scale, offset |
 | | `demos` | demo_id, title, story, request_json, compare_request_json, narration_steps_json |
-| | `resources` | title, provider, kind, url, how_it_helps, used_in_app |
-| | `meta` | key, value (`seed_version`) |
+| | `resources` | key, step, topics, title, provider, kind, url, how_it_helps, used_in_app, related_json |
+| | `meta` | key, value (`seed_version` = `SEED_VERSION+<8-char hash of the column layout>`) |
 | `cache.xlsx` | `meta` | cache_key, source, variable_id, lat, lon, resolution, start_year, end_year, fetched_at, n_rows |
 | | `series` | cache_key, date, value |
 | `analyses.xlsx` | `analyses` | analysis_id, created_at, variable_id, region_json, start_year, end_year, resolution, deseasonalize, alpha, ols_slope_per_decade, ols_p, mk_p, sens_slope_per_decade, significant, verdict, request_json |
@@ -393,12 +429,13 @@ Note: `[hidden] { display: none !important; }` in `styles.css` is required, beca
 |---|---|
 | `test_trend.py` | Synthetic series (known slope + seasonal sine + AR(1) noise): slope recovery, significance, sign, seasonal MK, gaps, n_eff, percent rule |
 | `test_nasa_power.py` | Month 13 dropped, −999 → NaN, daily keys, retry on 503, no retry on 4xx (respx) |
-| `test_xlsx_store.py` | Catalog round trip, cache persistence across instances, TTL, daily kept in memory, corrupt-file recovery, saved analyses |
+| `test_next_steps.py` | Every resource has a workflow step and valid links; suggestions for temperature, not-significant results, satellite runoff and Canadian regions; Canada box test; `/api/resources` relationships and `/api/resources/steps` |
+| `test_xlsx_store.py` | Catalog round trip (including resource links), cache persistence across instances, TTL, daily kept in memory, corrupt-file recovery, saved analyses |
 | `test_api.py` | Full API through `TestClient` with mocked upstreams: analyze → cache hit → reload → xlsx/csv export, bbox sampling, validation (422), 404s, 502 mapping, all-missing 422, search/weather, CORS for :5500 |
 
 | `test_giovanni.py` | CSV parsing with metadata and fill values, daily → monthly, sign-in flow (Basic auth sent only to Earthdata, token cached), unit conversion, rejected-login message, variables unavailable without a login, first-year and daily 422s, end-to-end Giovanni analysis (3 × 3 points), `/api/resources` |
 
-Commands: `pytest -q` (43 tests, no network) and `ruff check .`.
+Commands: `pytest -q` (51 tests, no network) and `ruff check .`.
 
 ## 15. Four-day schedule
 

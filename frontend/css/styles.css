@@ -240,6 +240,15 @@ select, input[type="number"], input[type="search"] {
 .resource-items li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
 .resource-items p { margin: 4px 0 0; }
 .learn a, .resource-items a { color: var(--primary); font-weight: 600; }
+.resource-items li { scroll-margin-top: 90px; }
+.connects { margin: 6px 0 0; font-weight: 600; }
+.res-links { margin: 2px 0 0; padding-left: 18px; }
+.res-links li { border: 0; padding: 1px 0; }
+.res-links a { font-weight: 500; }
+.res-flash { animation: res-flash 1.6s ease-out; }
+@keyframes res-flash { from { background: color-mix(in srgb, var(--primary) 22%, transparent); } to { background: transparent; } }
+.next-steps { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.next-steps h3 { margin: 0 0 2px; }
 select option:disabled { color: var(--muted); }
 
 .footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 8px 16px 24px; }

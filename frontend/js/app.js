@@ -77,6 +77,7 @@
       li.textContent = h;
       hints.appendChild(li);
     });
+    renderNextSteps(res);
     $("citation").textContent =
       `${res.n_sample_points} sample point(s) · ${Math.round(res.missing_fraction * 100)} % missing · ${res.source_citation}`;
   }
@@ -198,20 +199,62 @@
   let reconnectTimer = null;
 
   /** Resources panel, grouped by provider; every link opens in a new tab. */
-  function renderResources(list) {
+  const STEP_LABELS = { data: "Get data", test: "Test", check: "Cross-check", explain: "Explain" };
+
+  /** Resources grouped by detective step; each one lists the resources it connects to. */
+  function renderResources(list, steps) {
     const esc = ETD.wizard.escapeHtml;
-    const groups = {};
-    list.forEach((r) => (groups[r.provider] = groups[r.provider] || []).push(r));
-    $("resources-list").innerHTML = Object.keys(groups).map((provider) => `
-      <h3>${esc(provider)}</h3>
-      <ul class="resource-items">${groups[provider].map((r) => `
-        <li>
+    const byKey = {};
+    list.forEach((r) => { if (r.key) byKey[r.key] = r; });
+    const order = (steps && steps.length) ? steps : [{ step: "", title: "Resources", intro: "" }];
+    const groups = order.map((s) => ({ ...s, items: list.filter((r) => !s.step || r.step === s.step) }));
+    const leftovers = steps && steps.length ? list.filter((r) => !steps.some((s) => s.step === r.step)) : [];
+    if (leftovers.length) groups.push({ step: "", title: "More", intro: "", items: leftovers });
+
+    const links = (r) => (r.related || []).filter((l) => byKey[l.key]).map((l) => `
+        <li><a href="#res-${esc(l.key)}" class="res-jump" data-key="${esc(l.key)}">${esc(byKey[l.key].title)}</a>
+          <span class="muted"> — ${esc(l.why)}</span></li>`).join("");
+
+    $("resources-list").innerHTML = groups.filter((g) => g.items.length).map((g) => `
+      <h3>${esc(g.title)}</h3>
+      ${g.intro ? `<p class="muted small">${esc(g.intro)}</p>` : ""}
+      <ul class="resource-items">${g.items.map((r) => `
+        <li id="res-${esc(r.key)}">
           <a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a>
           <span class="badge ${r.used_in_app ? "badge-used" : "badge-explore"}">${r.used_in_app ? "Used in this app" : "Explore further"}</span>
-          <span class="badge badge-kind">${esc(r.kind)}</span>
+          <span class="badge badge-kind">${esc(r.provider)} · ${esc(r.kind)}</span>
           <p class="muted small">${esc(r.how_it_helps)}</p>
+          ${links(r) ? `<p class="small connects">Connects to:</p><ul class="res-links small">${links(r)}</ul>` : ""}
         </li>`).join("")}
       </ul>`).join("");
+  }
+
+  /** Briefly highlight a resource when a "Connects to" link jumps to it. */
+  function onResourceJump(ev) {
+    const a = ev.target.closest(".res-jump");
+    if (!a) return;
+    ev.preventDefault();
+    const el = document.getElementById("res-" + a.dataset.key);
+    if (!el) return;
+    $("resources-panel").open = true;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("res-flash");
+    void el.offsetWidth; // restart the animation
+    el.classList.add("res-flash");
+  }
+
+  function renderNextSteps(res) {
+    const box = $("next-steps");
+    const items = res.next_steps || [];
+    if (!items.length) { box.hidden = true; return; }
+    const esc = ETD.wizard.escapeHtml;
+    $("next-steps-list").innerHTML = items.map((n) => `
+      <li>
+        <a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
+        ${STEP_LABELS[n.step] ? `<span class="badge badge-kind">${esc(STEP_LABELS[n.step])}</span>` : ""}
+        <p class="muted small">${esc(n.why)}</p>
+      </li>`).join("");
+    box.hidden = false;
   }
 
   async function loadCatalog() {
@@ -219,7 +262,8 @@
       const [vars, demos] = await Promise.all([ETD.api.variables(), ETD.api.demos()]);
       ETD.wizard.setVariables(vars);
       ETD.demos.setDemos(demos);
-      ETD.api.resources().then(renderResources).catch(() => {
+      Promise.all([ETD.api.resources(), ETD.api.resourceSteps().catch(() => [])])
+        .then(([list, steps]) => renderResources(list, steps)).catch(() => {
         $("resources-list").innerHTML = '<p class="muted">Resources could not be loaded.</p>';
       });
       catalogLoaded = true;
@@ -263,6 +307,7 @@
     }
     $("export-xlsx").addEventListener("click", () => exportAs("xlsx"));
     $("export-csv").addEventListener("click", () => exportAs("csv"));
+    $("resources-list").addEventListener("click", onResourceJump);
 
     const loaded = await loadCatalog();
     if (loaded) checkHealth();

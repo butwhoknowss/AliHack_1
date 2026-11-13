@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from app.storage.seed import ALL_VARIABLES, DEMOS, RESOURCES, SEED_VERSION, VARIABLES, ensure_catalog
+from app.storage.seed import ALL_VARIABLES, CATALOG_VERSION, DEMOS, RESOURCES, VARIABLES, ensure_catalog
 from app.storage.xlsx_store import XlsxStore, load_catalog, read_catalog_version, read_workbook, write_catalog
 
 
@@ -24,13 +24,14 @@ def test_catalog_round_trip(tmp_path):
     assert demos[2]["compare_request"]["variable_id"] == "PRECTOTCORR"
     assert demos[0]["compare_request"] is None
     assert len(resources) == len(RESOURCES) and isinstance(resources[0]["used_in_app"], bool)
+    assert resources[0]["related"] == RESOURCES[0]["related"]  # relationships survive the .xlsx round trip
 
 
 def test_catalog_reseeds_when_version_changes(tmp_path):
     write_catalog(tmp_path, VARIABLES[:1], [], [], version="old")
     assert read_catalog_version(tmp_path) == "old"
     assert ensure_catalog(tmp_path) is True
-    assert read_catalog_version(tmp_path) == SEED_VERSION
+    assert read_catalog_version(tmp_path) == CATALOG_VERSION
     assert len(load_catalog(tmp_path)[0]) == len(ALL_VARIABLES)
 
 

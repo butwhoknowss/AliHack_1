@@ -171,6 +171,11 @@
           <p id="verdict-text" class="verdict"></p>
           <div id="compare-verdict" class="compare-verdict" hidden></div>
           <ul id="hints" class="hints"></ul>
+          <div id="next-steps" class="next-steps" hidden>
+            <h3>🔗 Next steps for this case</h3>
+            <p class="muted small">Official challenge resources that fit this variable, place and result.</p>
+            <ul id="next-steps-list" class="resource-items"></ul>
+          </div>
           <div class="export-row">
             <button id="export-xlsx" class="btn btn-secondary" type="button">⬇ Export Excel (.xlsx)</button>
             <button id="export-csv" class="btn btn-secondary" type="button">⬇ Export CSV</button>
@@ -205,7 +210,7 @@
 
       <!-- Always visible (not only after an analysis) -->
       <details class="panel learn" id="resources-panel">
-        <summary><strong>📚 Resources &amp; learn more</strong> <span class="muted small">— official NASA and partner tools from the challenge</span></summary>
+        <summary><strong>📚 Resources &amp; learn more</strong> <span class="muted small">— official NASA and partner tools from the challenge, in the order a detective uses them</span></summary>
         <div id="resources-list" class="resources-list"><p class="muted">Loading…</p></div>
       </details>
     </section>

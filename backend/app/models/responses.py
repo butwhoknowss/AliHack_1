@@ -3,7 +3,7 @@
 import datetime as dt
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .requests import Region
 
@@ -24,13 +24,43 @@ class Variable(BaseModel):
     unavailable_reason: str | None = None
 
 
+class ResourceLink(BaseModel):
+    key: str            # key of the related resource
+    why: str            # how the two resources belong together
+
+
 class Resource(BaseModel):
+    key: str = ""
+    step: str = ""      # data | test | check | explain (detective workflow)
+    topics: str = ""    # comma-separated: atmosphere, water, air, land, statistics, canada
     title: str
     provider: str
     kind: str
     url: str
     how_it_helps: str
     used_in_app: bool
+    related: list[ResourceLink] = []
+
+    @field_validator("related", mode="before")
+    @classmethod
+    def _pairs_to_links(cls, v):
+        """The catalog stores links compactly as [key, why] pairs."""
+        return [{"key": x[0], "why": x[1]} if isinstance(x, (list, tuple)) else x for x in (v or [])]
+
+
+class ResourceStep(BaseModel):
+    step: str
+    title: str
+    intro: str
+
+
+class NextStep(BaseModel):
+    """A resource suggested after an analysis, with a reason tailored to that analysis."""
+    key: str
+    title: str
+    url: str
+    step: str
+    why: str
 
 
 class SeriesPoint(BaseModel):
@@ -95,6 +125,7 @@ class AnalyzeResponse(BaseModel):
     n_sample_points: int
     source_citation: str
     created_at: dt.datetime
+    next_steps: list[NextStep] = []
 
 
 class TimeseriesResponse(BaseModel):

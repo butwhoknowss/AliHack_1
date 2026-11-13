@@ -11,6 +11,7 @@ Design (see Architecture.md section 7):
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -33,8 +34,12 @@ VARIABLE_COLUMNS = [
     "provider", "provider_id", "first_year", "scale", "offset",
 ]
 DEMO_COLUMNS = ["demo_id", "title", "story", "request_json", "compare_request_json", "narration_steps_json"]
-RESOURCE_COLUMNS = ["title", "provider", "kind", "url", "how_it_helps", "used_in_app"]
+RESOURCE_COLUMNS = ["key", "step", "topics", "title", "provider", "kind", "url", "how_it_helps", "used_in_app", "related_json"]
 CATALOG_META_COLUMNS = ["key", "value"]
+# Short fingerprint of the catalog sheet layout (see seed.CATALOG_VERSION).
+CATALOG_SCHEMA = hashlib.sha1(
+    json.dumps([VARIABLE_COLUMNS, DEMO_COLUMNS, RESOURCE_COLUMNS]).encode()
+).hexdigest()[:8]
 CACHE_META_COLUMNS = ["cache_key", "source", "variable_id", "lat", "lon", "resolution", "start_year", "end_year", "fetched_at", "n_rows"]
 CACHE_SERIES_COLUMNS = ["cache_key", "date", "value"]
 ANALYSIS_COLUMNS = [
@@ -141,10 +146,13 @@ def load_catalog(data_dir: Path) -> tuple[list[dict], list[dict], list[dict]]:
         row["offset"] = _as_float(row["offset"], 0.0)
         variables.append(row)
 
-    resources = [
-        {k: ("" if pd.isna(v) else v) for k, v in r.items()} | {"used_in_app": _as_bool(r["used_in_app"])}
-        for r in res_df.to_dict(orient="records")
-    ]
+    resources: list[dict] = []
+    for r in res_df.to_dict(orient="records"):
+        row = {k: ("" if pd.isna(v) else v) for k, v in r.items()}
+        raw = row.pop("related_json", "")
+        row["used_in_app"] = _as_bool(row["used_in_app"])
+        row["related"] = json.loads(raw) if isinstance(raw, str) and raw.strip() else []
+        resources.append(row)
 
     demos: list[dict] = []
     for row in demos_df.to_dict(orient="records"):
@@ -185,7 +193,10 @@ def write_catalog(
         {
             "variables": vars_df,
             "demos": pd.DataFrame(demo_rows, columns=DEMO_COLUMNS),
-            "resources": pd.DataFrame(resources or [], columns=RESOURCE_COLUMNS),
+            "resources": pd.DataFrame(
+                [{**r, "related_json": json.dumps(r.get("related", []))} for r in (resources or [])],
+                columns=RESOURCE_COLUMNS,
+            ),
             "meta": pd.DataFrame([{"key": "seed_version", "value": version}], columns=CATALOG_META_COLUMNS),
         },
     )

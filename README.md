@@ -16,7 +16,8 @@ Built for high-school and college students and the curious public. It uses NASA 
 ## Features
 
 - 🔎 **Variable catalog with plain-English definitions**: 11 NASA POWER variables, plus 6 🛰️ satellite variables from NASA Giovanni (GPM, OMI, AIRS, GLDAS). Each has its units, start year and why it matters.
-- 📚 **Resources panel** with the challenge's official NASA, NOAA, KNMI and CSA tools and guides.
+- 📚 **Resources panel** with the challenge's official NASA, NOAA, KNMI and CSA tools and guides. It is organised as a detective workflow (get data → test → cross-check → explain) and shows how the resources connect.
+- 🔗 **Next steps for each case:** after an analysis, the resources that fit your variable, place and result, each with a reason.
 - 🗺️ **Pick any region**: click a point, draw a box (up to 5° × 5°), search a place name, or use the quick ideas (desert, rainforest, Arctic, big city).
 - 📈 **Interactive time series**: raw values or anomalies with the seasonal cycle removed, a 12-month running mean, the trend line, and a 95 % confidence band.
 - 🧮 **Trend statistics**:
@@ -80,7 +81,7 @@ Right-click **`frontend/index.html`** → **Open with Live Server**. It opens at
 ### 4. Run the tests
 
 ```bash
-pytest -q          # 43 tests, no internet needed (all services are mocked)
+pytest -q          # 51 tests, no internet needed (all services are mocked)
 ruff check .       # lint
 ```
 
@@ -189,24 +190,37 @@ Notes:
 
 ## Resources & learn more
 
-The dashboard's **📚 Resources & learn more** panel lists the challenge's official resources. Each one has a one-line note on how it relates to this tool.
+The challenge's 13 official resources aren't a random list: together they cover every step of a trend investigation. The dashboard's **📚 Resources & learn more** panel groups them by step. Each resource also says which other resources it **connects to** and why; click a link to jump to it.
 
-- **NASA:**
-  - Giovanni: *built in*
-  - Hydrology Time Series: *retired, so its GLDAS data now comes through Giovanni*
-  - AppEEARS
-  - SeaWiFS chlorophyll trend paper (Acker et al., 2009): *the same recipe as this app*
-- **NOAA:** Climate Data Online (station records)
-- **KNMI:** Climate Explorer
-- **Statistics guides:** trend tests; statistical significance
-- **CSA:**
-  - RADARSAT Constellation Mission
-  - Geo.ca
-  - SWOT: *launched in December 2022, so its record is too short for a 10-year trend yet*
-  - Ecosystem monitoring
-  - SAR Python tutorial
+| Step | Resources | What they do for a detective |
+|---|---|---|
+| **1 · Get the data** | NASA Giovanni *(built in)* · Hydrology Time Series *(retired, so its GLDAS data now comes through Giovanni)* · AppEEARS | Turn satellite data for a place into a time series |
+| **2 · Test the trend** | Trend-tests article · Statistical significance guide · SeaWiFS chlorophyll paper (Acker et al., 2009) | How significance tests work, plus a NASA study that used the same recipe as this app |
+| **3 · Cross-check** | NOAA Climate Data Online (station records) · KNMI Climate Explorer | Confirm a finding with independent data |
+| **4 · Explain and go further** | CSA: RADARSAT Constellation Mission · SWOT · Geo.ca · Ecosystem monitoring · SAR Python tutorial | Why the change matters, and Canadian data and missions |
 
-The resource list lives in `backend/app/storage/seed.py` (`RESOURCES`).
+Some of the connections:
+- **Giovanni replaced the Hydrology Time Series tool** for GLDAS water data. The SeaWiFS paper built its time series in Giovanni too.
+- **AppEEARS fills a gap:** it gives fine-resolution MODIS land data, which Giovanni's API does not serve.
+- **CDO and KNMI** are two independent ways to check a trend.
+- **RCM, the SAR tutorial, the ecosystems page and Geo.ca** form one Canadian chain: the radar satellites, how to use their images, what they monitor, and where to find Canadian data.
+- **SWOT** measures river and lake heights directly. Its record only started in 2022, so it can't show a 10-year trend yet, which makes it a good lesson in record length.
+
+### 🔗 Next steps for each case
+
+After every investigation, the verdict panel suggests up to 4 of these resources, with a reason written for your result:
+
+| Your case | Suggestion |
+|---|---|
+| Temperature or rainfall | Compare with real weather stations near your region (NOAA CDO) |
+| "Not significant yet" | The significance guide: why that doesn't prove nothing is changing |
+| The two tests disagree | The trend-tests article: how they differ |
+| Satellite variable | Open Giovanni to map the whole region |
+| Soil moisture or evaporation | AppEEARS, to see if the vegetation responds |
+| Runoff | SWOT, which can confirm it in future |
+| A region in or near Canada | Geo.ca and RCM |
+
+The resources and their links live in `backend/app/storage/seed.py` (`RESOURCES`, `RESOURCE_STEPS`). The suggestion rules are in `backend/app/services/next_steps.py`.
 
 ---
 

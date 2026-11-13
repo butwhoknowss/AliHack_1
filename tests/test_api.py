@@ -55,6 +55,8 @@ def test_analyze_happy_path_then_reload_and_export(client):
     assert len(data["series"]) == 30 * 12
     assert data["series"][0]["anomaly"] is not None
     assert "Fairbanks" in data["trend"]["verdict"]
+    next_keys = [n["key"] for n in data["next_steps"]]
+    assert next_keys and next_keys[0] == "cdo"  # temperature -> compare with weather stations first
     assert route.call_count == 1
 
     # second call hits the xlsx cache, not the network

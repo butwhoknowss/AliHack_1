@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Path
 
-from ..deps import get_sources, get_store, get_variables
+from ..deps import get_resources, get_sources, get_store, get_variables
 from ..errors import NotFoundError
 from ..models import AnalyzeRequest, AnalyzeResponse
 from ..services.analysis import run_analysis
+from ..services.next_steps import suggest_next_steps
 from ..storage.xlsx_store import XlsxStore
 
 router = APIRouter(tags=["analysis"])
@@ -17,8 +18,11 @@ async def analyze(
     variables: dict[str, dict] = Depends(get_variables),
     sources: dict = Depends(get_sources),
     store: XlsxStore = Depends(get_store),
+    resources: list[dict] = Depends(get_resources),
 ) -> AnalyzeResponse:
-    return await run_analysis(req, variables=variables, sources=sources, store=store)
+    res = await run_analysis(req, variables=variables, sources=sources, store=store)
+    res.next_steps = suggest_next_steps(resources, res)
+    return res
 
 
 async def reload_analysis(
@@ -38,5 +42,8 @@ async def get_analysis(
     variables: dict[str, dict] = Depends(get_variables),
     sources: dict = Depends(get_sources),
     store: XlsxStore = Depends(get_store),
+    resources: list[dict] = Depends(get_resources),
 ) -> AnalyzeResponse:
-    return await reload_analysis(analysis_id, variables, sources, store)
+    res = await reload_analysis(analysis_id, variables, sources, store)
+    res.next_steps = suggest_next_steps(resources, res)
+    return res

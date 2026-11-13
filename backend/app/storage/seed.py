@@ -6,7 +6,7 @@ data/catalog.xlsx is rebuilt automatically when its stored version differs.
 
 from pathlib import Path
 
-from .xlsx_store import CATALOG_FILE, read_catalog_version, write_catalog
+from .xlsx_store import CATALOG_FILE, CATALOG_SCHEMA, read_catalog_version, write_catalog
 
 POWER_SOURCE = "NASA POWER (MERRA-2 reanalysis)"
 POWER_RAD_SOURCE = "NASA POWER (CERES / FLASHFlux satellite radiation)"
@@ -244,51 +244,94 @@ GIOVANNI_VARIABLES: list[dict] = [
 
 ALL_VARIABLES = VARIABLES + GIOVANNI_VARIABLES
 
-# Official challenge resources (all URLs checked when added).
+# Official challenge resources (all URLs checked when added), organised as a detective workflow:
+#   key      short id used by `related` and by services/next_steps.py
+#   step     data -> test -> check -> explain (the order of the Resources panel)
+#   topics   which kinds of variables / places a resource is relevant to
+#   related  [[key, why the two resources belong together], ...]
+RESOURCE_STEPS: list[dict] = [
+    {"step": "data", "title": "1 · Get the data and build a time series",
+     "intro": "Tools that turn satellite or model data for a place into a series of values over time."},
+    {"step": "test", "title": "2 · Test whether the trend is real",
+     "intro": "How significance tests work, and a NASA study that used the same recipe as this app."},
+    {"step": "check", "title": "3 · Cross-check with other data",
+     "intro": "A good detective confirms a finding with an independent witness: station records or other datasets."},
+    {"step": "explain", "title": "4 · Explain the change and go further",
+     "intro": "Missions and examples that show why a change matters for water, ice, forests and wetlands."},
+]
 RESOURCES: list[dict] = [
-    {"title": "Giovanni", "provider": "NASA", "kind": "Data tool", "used_in_app": True,
+    {"key": "giovanni", "step": "data", "topics": "atmosphere,water,air,land",
+     "related": [['hydrology', 'Giovanni now serves the GLDAS hydrology data that the retired Hydrology Time Series tool used to provide.'], ['seawifs', 'The SeaWiFS study built its chlorophyll time series with Giovanni.'], ['appeears', "For finer-resolution land data (such as MODIS vegetation), which Giovanni's API does not serve."]],
+     "title": "Giovanni", "provider": "NASA", "kind": "Data tool", "used_in_app": True,
      "url": "https://giovanni.gsfc.nasa.gov/giovanni/",
      "how_it_helps": "Built into this app: it supplies the satellite variables (GPM, OMI, AIRS, GLDAS). Open it to make maps and area-averaged time series."},
-    {"title": "Hydrology Time Series (Data Rods)", "provider": "NASA", "kind": "Data tool", "used_in_app": False,
+    {"key": "hydrology", "step": "data", "topics": "water",
+     "related": [['giovanni', 'Its successor for GLDAS evaporation and runoff time series.'], ['swot', 'Modelled runoff and flow (GLDAS) vs. water heights measured directly from space (SWOT).']],
+     "title": "Hydrology Time Series (Data Rods)", "provider": "NASA", "kind": "Data tool", "used_in_app": False,
      "url": "https://disc.gsfc.nasa.gov/information/tools?title=Hydrology%20Data%20Rods",
      "how_it_helps": "NASA has retired this service; we get the same GLDAS hydrology data (evaporation, runoff) through Giovanni instead."},
-    {"title": "AppEEARS", "provider": "NASA", "kind": "Data tool", "used_in_app": False,
+    {"key": "appeears", "step": "data", "topics": "land",
+     "related": [['giovanni', 'Giovanni gives coarse, long climate series; AppEEARS gives fine land detail for the same place.'], ['ecosystems', 'Vegetation and land-cover change is how satellites track the ecosystems on that page.']],
+     "title": "AppEEARS", "provider": "NASA", "kind": "Data tool", "used_in_app": False,
      "url": "https://appeears.earthdatacloud.nasa.gov/",
      "how_it_helps": "Extract fine-resolution land data (e.g. MODIS vegetation greenness) for your own points — useful when a 50 km grid cell is too coarse."},
-    {"title": "Climate Data Online (CDO)", "provider": "NOAA", "kind": "Data tool", "used_in_app": False,
+    {"key": "cdo", "step": "check", "topics": "atmosphere,water",
+     "related": [['knmi', "KNMI Climate Explorer can also analyse station series, so you can test a station's trend too."], ['trendtests', 'Use the same tests on a station series.']],
+     "title": "Climate Data Online (CDO)", "provider": "NOAA", "kind": "Data tool", "used_in_app": False,
      "url": "https://www.ncei.noaa.gov/cdo-web/",
      "how_it_helps": "Real weather-station records. Compare a station's trend with the gridded trend this app finds nearby."},
-    {"title": "Time-Series Analysis of SeaWiFS Chlorophyll in River-Influenced Coastal Regions (Acker et al., 2009)", "provider": "NASA", "kind": "Article", "used_in_app": False,
+    {"key": "seawifs", "step": "test", "topics": "statistics,water",
+     "related": [['giovanni', 'The data tool the study used to build its time series.'], ['trendtests', 'Explains the kind of trend tests the study applies.']],
+     "title": "Time-Series Analysis of SeaWiFS Chlorophyll in River-Influenced Coastal Regions (Acker et al., 2009)", "provider": "NASA", "kind": "Article", "used_in_app": False,
      "url": "https://ntrs.nasa.gov/api/citations/20090042747/downloads/20090042747.pdf",
      "how_it_helps": "A research example of the same recipe this app uses: build monthly series in Giovanni, remove seasons, then test significance."},
-    {"title": "KNMI Climate Explorer", "provider": "KNMI", "kind": "Data tool", "used_in_app": False,
+    {"key": "knmi", "step": "check", "topics": "atmosphere,water,air,land",
+     "related": [['cdo', 'Station records are an independent check on gridded data.'], ['giovanni', 'Compare its datasets with the satellite series used here.']],
+     "title": "KNMI Climate Explorer", "provider": "KNMI", "kind": "Data tool", "used_in_app": False,
      "url": "https://climexp.knmi.nl/",
      "how_it_helps": "A research-grade tool to double-check a trend you found here with other datasets and methods."},
-    {"title": "Statistical test methods to detect trends in time series", "provider": "Statistics guides", "kind": "Article", "used_in_app": False,
+    {"key": "trendtests", "step": "test", "topics": "statistics",
+     "related": [['significance', 'Start there if p-values are new to you.'], ['seawifs', 'See trend tests used in a real NASA study.']],
+     "title": "Statistical test methods to detect trends in time series", "provider": "Statistics guides", "kind": "Article", "used_in_app": False,
      "url": "https://vlyubchich.r-universe.dev/funtimes/doc/trendtests.html",
      "how_it_helps": "Explains the t-test and Mann-Kendall test used here, and why autocorrelation matters."},
-    {"title": "A Comprehensive Guide to Statistical Significance", "provider": "Statistics guides", "kind": "Article", "used_in_app": False,
+    {"key": "significance", "step": "test", "topics": "statistics",
+     "related": [['trendtests', 'The next step: tests made specifically for trends over time.']],
+     "title": "A Comprehensive Guide to Statistical Significance", "provider": "Statistics guides", "kind": "Article", "used_in_app": False,
      "url": "https://statsig.com/perspectives/a-comprehensive-guide-to-statistical-significance",
      "how_it_helps": "A friendly introduction to p-values and what 'significant' does (and does not) mean."},
-    {"title": "RADARSAT Constellation Mission (RCM)", "provider": "CSA", "kind": "Mission", "used_in_app": False,
+    {"key": "rcm", "step": "explain", "topics": "canada,water,land",
+     "related": [['sar', 'The tutorial teaches how to open and map RADARSAT radar images.'], ['ecosystems', "Ecosystem monitoring is one of RCM's three main jobs."], ['geo', 'Canadian open geospatial data to put radar images in context.']],
+     "title": "RADARSAT Constellation Mission (RCM)", "provider": "CSA", "kind": "Mission", "used_in_app": False,
      "url": "https://www.asc-csa.gc.ca/eng/satellites/radarsat/",
      "how_it_helps": "Radar satellites that see through clouds, day or night — used for sea ice, oil spills, floods, wetlands and crops."},
-    {"title": "Geo.ca", "provider": "CSA", "kind": "Data tool", "used_in_app": False,
+    {"key": "geo", "step": "explain", "topics": "canada",
+     "related": [['rcm', "Canada's own radar satellites watch the same regions."], ['ecosystems', 'Environmental issues you can explore with Canadian data.']],
+     "title": "Geo.ca", "provider": "CSA", "kind": "Data tool", "used_in_app": False,
      "url": "https://geo.ca/",
      "how_it_helps": "Canada's open geospatial data — handy for Canadian regions you investigate here."},
-    {"title": "SWOT mission", "provider": "CSA", "kind": "Mission", "used_in_app": False,
+    {"key": "swot", "step": "explain", "topics": "water",
+     "related": [['hydrology', 'Measured water heights vs. modelled runoff and river flow.'], ['significance', 'Why a 2–3 year record cannot show a significant trend yet.']],
+     "title": "SWOT mission", "provider": "CSA", "kind": "Mission", "used_in_app": False,
      "url": "https://www.asc-csa.gc.ca/eng/satellites/swot.asp",
      "how_it_helps": "A NASA-CNES mission with CSA and UK partners that measures water heights of lakes, rivers and oceans. It launched in December 2022, so its record is still too short for a 10-year trend test — a good example of why record length matters."},
-    {"title": "Monitoring and protecting our ecosystems from space", "provider": "CSA", "kind": "Article", "used_in_app": False,
+    {"key": "ecosystems", "step": "explain", "topics": "land,water,canada",
+     "related": [['rcm', 'The radar mission behind many of these examples.'], ['appeears', 'Get vegetation data to investigate an ecosystem yourself.']],
+     "title": "Monitoring and protecting our ecosystems from space", "provider": "CSA", "kind": "Article", "used_in_app": False,
      "url": "https://www.asc-csa.gc.ca/eng/satellites/everyday-lives/monitoring-and-protecting-our-ecosystems-from-space.asp",
      "how_it_helps": "Real examples of satellites tracking forests, wetlands and protected areas."},
-    {"title": "Synthetic Aperture Radar Python tutorial (RADARSAT-1)", "provider": "CSA", "kind": "Tutorial", "used_in_app": False,
+    {"key": "sar", "step": "explain", "topics": "canada",
+     "related": [['rcm', 'RCM is the newest generation of the RADARSAT satellites used in the tutorial.']],
+     "title": "Synthetic Aperture Radar Python tutorial (RADARSAT-1)", "provider": "CSA", "kind": "Tutorial", "used_in_app": False,
      "url": "https://data.asc-csa.gc.ca/en/dataset/e0333ed6-a614-46b1-b595-1fac1ce9214a",
      "how_it_helps": "Learn to open and visualize radar images with Python — a next step beyond the time series in this app."},
 ]
 
 # Bump when VARIABLES / GIOVANNI_VARIABLES / DEMOS / RESOURCES change: catalog.xlsx is rebuilt automatically.
-SEED_VERSION = "4"
+SEED_VERSION = "5"
+# What is stored in catalog.xlsx: the seed version plus the sheet layout, so a new column
+# in xlsx_store.py also forces a rebuild (even if SEED_VERSION was bumped first).
+CATALOG_VERSION = f"{SEED_VERSION}+{CATALOG_SCHEMA}"
 
 
 def _demo_request(variable_id: str, region: dict, start: int = 1981, end: int | None = None) -> dict:
@@ -366,8 +409,8 @@ DEMOS: list[dict] = [
 
 
 def ensure_catalog(data_dir: Path) -> bool:
-    """Create catalog.xlsx, or rebuild it when SEED_VERSION changed. Returns True if (re)written."""
-    if (data_dir / CATALOG_FILE).exists() and read_catalog_version(data_dir) == SEED_VERSION:
+    """Create catalog.xlsx, or rebuild it when SEED_VERSION or the sheet layout changed. Returns True if (re)written."""
+    if (data_dir / CATALOG_FILE).exists() and read_catalog_version(data_dir) == CATALOG_VERSION:
         return False
-    write_catalog(data_dir, ALL_VARIABLES, DEMOS, RESOURCES, SEED_VERSION)
+    write_catalog(data_dir, ALL_VARIABLES, DEMOS, RESOURCES, CATALOG_VERSION)
     return True
