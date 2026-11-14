@@ -6,7 +6,34 @@
   const fmt = (x) => ETD.charts.fmt(x);
   const fmtP = (p) => ETD.charts.fmtP(p);
 
-  const state = { result: null, compare: null, busy: false };
+  const state = { result: null, compare: null, busy: false, lastKey: null };
+
+  // ---- stale results: show an "Update investigation" bar when the form no longer matches them ----
+
+  /** Stable fingerprint of a request (fixed key order, rounded coords; ignores the region name and `save`). */
+  function canonical(req) {
+    const r = req.region || {};
+    const c = (v) => (v === null || v === undefined ? null : Number(Number(v).toFixed(4)));
+    return JSON.stringify([
+      req.variable_id, req.units || "base", req.start_year, req.end_year, req.resolution || "monthly",
+      req.deseasonalize !== false, Number(req.alpha || 0.05),
+      r.type, c(r.lat), c(r.lon), c(r.south), c(r.west), c(r.north), c(r.east),
+    ]);
+  }
+
+  function checkDirty() {
+    let dirty = false;
+    if (state.result && state.lastKey && !state.busy) {
+      try {
+        dirty = canonical(ETD.wizard.buildRequest()) !== state.lastKey;
+      } catch (_) {
+        dirty = true; // incomplete/invalid form: "Update" will show what needs fixing
+      }
+    }
+    $("stale-bar").hidden = !dirty;
+    $("results").classList.toggle("stale", dirty);
+    $("investigate-btn").textContent = dirty ? "🔄 Update investigation" : "🔍 Investigate";
+  }
 
   function showError(msg) {
     const el = $("form-error");
@@ -18,6 +45,7 @@
   function setLoading(on, text) {
     state.busy = on;
     $("loading").hidden = !on;
+    if (on) $("stale-bar").hidden = true;
     if (text) $("loading-text").textContent = text;
     $("investigate-btn").disabled = on;
   }
@@ -90,10 +118,10 @@
     const same = Math.sign(res.trend.ols.slope_per_decade) === Math.sign(cmp.trend.ols.slope_per_decade);
     box.innerHTML = `
       <h3>Comparison</h3>
-      <p><span class="swatch swatch-a"></span><strong>${esc(res.region.name || "Region A")}</strong>: ${dir(res)}
+      <p><span class="swatch swatch-a"></span><strong>${esc(ETD.wizard.regionLabel(res.region) || "Region A")}</strong>: ${dir(res)}
         ${fmt(res.trend.ols.slope_per_decade)} ${esc(res.variable.units)}/decade, ${fmtP(res.trend.ols.p_value)}
         (${res.trend.significant ? "significant" : "not significant"})</p>
-      <p><span class="swatch swatch-b"></span><strong>${esc(cmp.region.name || "Region B")}</strong>: ${dir(cmp)}
+      <p><span class="swatch swatch-b"></span><strong>${esc(ETD.wizard.regionLabel(cmp.region) || "Region B")}</strong>: ${dir(cmp)}
         ${fmt(cmp.trend.ols.slope_per_decade)} ${esc(cmp.variable.units)}/decade, ${fmtP(cmp.trend.ols.p_value)}
         (${cmp.trend.significant ? "significant" : "not significant"})</p>
       <p class="muted">${same ? "Both regions trend in the same direction." : "The two regions trend in <strong>opposite directions</strong>."}</p>
@@ -135,10 +163,11 @@
       ]);
       state.result = res;
       state.compare = cmp;
+      state.lastKey = canonical(req);
       $("show-anomaly").disabled = !res.deseasonalize;
       $("show-anomaly").checked = res.deseasonalize;
       $("chart-title").textContent =
-        `${res.variable.name} — ${res.region.name || "selected region"} (${res.period[0]}–${res.period[1]})`;
+        `${res.variable.name} — ${ETD.wizard.regionLabel(res.region)} (${res.period[0]}–${res.period[1]})`;
       $("results").hidden = false;
       redraw();
       renderCards(res);
@@ -153,10 +182,13 @@
     } finally {
       clearTimeout(slowTimer);
       setLoading(false);
+      checkDirty();
     }
   }
 
   async function onInvestigate() {
+    // A just-clicked place may still be getting its name: wait briefly so it reaches the verdict.
+    await Promise.race([ETD.wizard.whenNamed(), new Promise((r) => setTimeout(r, 3000))]);
     let req;
     try {
       req = ETD.wizard.buildRequest();
@@ -292,7 +324,22 @@
     }, 5000);
   }
 
+  /** Keep --topbar-h equal to the real header height (it wraps on narrow windows).
+   *  The sticky sidebar uses it to run from under the header to the bottom of the window. */
+  function trackTopbarHeight() {
+    const track = (selector, prop) => {
+      const el = document.querySelector(selector);
+      if (!el) return;
+      const set = () => document.documentElement.style.setProperty(prop, el.offsetHeight + "px");
+      set();
+      if (window.ResizeObserver) new ResizeObserver(set).observe(el);
+      else window.addEventListener("resize", set);
+    };
+    track(".topbar", "--topbar-h");
+  }
+
   async function init() {
+    trackTopbarHeight();
     ETD.wizard.init();
     ETD.map.init((region, clipped) => ETD.wizard.setRegion(region, clipped));
     ETD.demos.init();
@@ -308,12 +355,16 @@
     $("export-xlsx").addEventListener("click", () => exportAs("xlsx"));
     $("export-csv").addEventListener("click", () => exportAs("csv"));
     $("resources-list").addEventListener("click", onResourceJump);
+    $("update-btn").addEventListener("click", onInvestigate);
+    const wizardPanel = document.querySelector(".wizard");
+    wizardPanel.addEventListener("input", checkDirty);
+    wizardPanel.addEventListener("change", checkDirty);
 
     const loaded = await loadCatalog();
     if (loaded) checkHealth();
     else startReconnecting();
   }
 
-  ETD.app = { runAnalysis, showError };
+  ETD.app = { runAnalysis, showError, checkDirty };
   document.addEventListener("DOMContentLoaded", init);
 })();

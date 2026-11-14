@@ -69,6 +69,11 @@ class WeatherApiSource:
             if "lat" in d and "lon" in d
         ]
 
+    async def reverse(self, lat: float, lon: float) -> dict | None:
+        """Nearest named place to a coordinate (WeatherAPI search accepts "lat,lon"); None if none."""
+        results = await self.search(f"{lat:.4f},{lon:.4f}")
+        return results[0] if results else None
+
     async def current(self, lat: float, lon: float) -> dict:
         data = await self._get("current.json", f"{lat:.4f},{lon:.4f}")
         try:

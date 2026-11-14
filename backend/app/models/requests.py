@@ -14,6 +14,29 @@ def last_complete_year() -> int:
     return date.today().year - 1
 
 
+def _fmt_coord(v: float, nd: int, pos: str, neg: str) -> str:
+    """Hemisphere letter instead of a minus sign: -19.5 -> '19.5°S'. Zero (after rounding) has no letter."""
+    r = round(float(v), nd)
+    if r == 0:
+        return f"{0:.{nd}f}°"
+    return f"{abs(r):.{nd}f}°{pos if r > 0 else neg}"
+
+
+def fmt_lat(v: float, nd: int = 1) -> str:
+    return _fmt_coord(v, nd, "N", "S")
+
+
+def fmt_lon(v: float, nd: int = 1) -> str:
+    if abs(round(float(v), nd)) == 180:
+        return f"{180:.{nd}f}°"  # the antimeridian is neither east nor west
+    return _fmt_coord(v, nd, "E", "W")
+
+
+def fmt_range(a: float, b: float, fmt) -> str:
+    """'19.5°S–14.5°S' (en dash, no minus signs)."""
+    return f"{fmt(a)}–{fmt(b)}"
+
+
 class Region(BaseModel):
     type: Literal["point", "bbox"]
     lat: float | None = Field(None, ge=-90, le=90)
@@ -45,8 +68,8 @@ class Region(BaseModel):
         if self.name:
             return self.name
         if self.type == "point":
-            return f"{self.lat:.2f}, {self.lon:.2f}"
-        return f"box {self.south:.1f}..{self.north:.1f}N, {self.west:.1f}..{self.east:.1f}E"
+            return f"{fmt_lat(self.lat, 2)}, {fmt_lon(self.lon, 2)}"
+        return f"box {fmt_range(self.south, self.north, fmt_lat)}, {fmt_range(self.west, self.east, fmt_lon)}"
 
 
 class AnalyzeRequest(BaseModel):
@@ -58,6 +81,8 @@ class AnalyzeRequest(BaseModel):
     deseasonalize: bool = True
     alpha: float = Field(0.05, gt=0, lt=0.5)
     save: bool = True
+    # Unit to show results in (an id from Variable.unit_options); None = the variable's own unit.
+    units: str | None = Field(None, max_length=20)
 
     @model_validator(mode="after")
     def _check_period(self) -> "AnalyzeRequest":

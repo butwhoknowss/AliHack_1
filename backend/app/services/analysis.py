@@ -18,10 +18,12 @@ from ..models import (
     OLSResult,
     SeriesPoint,
     TrendResult,
+    UnitOption,
     Variable,
 )
 from ..sources.giovanni import GiovanniSource
 from ..storage.xlsx_store import XlsxStore
+from . import units as unit_conv
 from .explain import build_hints, build_verdict
 from .series import regional_series, to_monthly
 from .trend import analyze_series
@@ -65,7 +67,16 @@ def get_variable(variables: dict[str, dict], variable_id: str, giovanni: Giovann
     if row is None:
         raise NotFoundError(f"Unknown variable '{variable_id}'.")
     ok, reason = availability(row, giovanni)
-    return Variable(**row, available=ok, unavailable_reason=reason)
+    options = [UnitOption(id=o.id, label=o.label) for o in unit_conv.options_for(row["units"])]
+    return Variable(**row, available=ok, unavailable_reason=reason, base_units=row["units"], unit_options=options)
+
+
+def convert_units(variable: Variable, series: pd.Series, unit_id: str | None) -> tuple[Variable, pd.Series]:
+    """Show a series in another unit (linear: value * factor + offset); the label follows."""
+    opt = unit_conv.resolve(variable.base_units or variable.units, unit_id)
+    if opt.factor == 1.0 and opt.offset == 0.0:
+        return variable, series
+    return variable.model_copy(update={"units": opt.label}), series * opt.factor + opt.offset
 
 
 def check_request_fits_variable(variable: Variable, start_year: int, resolution: str) -> None:
@@ -90,6 +101,7 @@ async def run_analysis(
 ) -> AnalyzeResponse:
     variable = get_variable(variables, req.variable_id, sources.get("giovanni"))
     check_request_fits_variable(variable, req.start_year, req.resolution)
+    unit_conv.resolve(variable.units, req.units)  # reject an unknown unit before fetching any data
     source = sources[variable.provider]
 
     series, n_points = await regional_series(
@@ -104,6 +116,9 @@ async def run_analysis(
             f"{missing_fraction:.0%} of the months have no data for this region and variable "
             "(for example soil moisture over the ocean). Try another place or variable."
         )
+
+    # Convert before the statistics: slopes/CIs scale with the unit, p-values do not change.
+    variable, monthly = convert_units(variable, monthly, req.units)
 
     try:
         comp = analyze_series(

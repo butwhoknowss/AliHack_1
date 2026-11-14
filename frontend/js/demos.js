@@ -27,8 +27,11 @@
     $("demo-next").textContent = step === steps.length - 1 ? "Finish ✓" : "Next ▶";
   }
 
+  /** Fill in the last complete year, and the viewer's remembered display unit (e.g. °F). */
   function withEndYear(req) {
-    return req ? { ...req, end_year: req.end_year || ETD.wizard.lastCompleteYear() } : null;
+    if (!req) return null;
+    const units = req.units || ETD.wizard.preferredUnit(req.variable_id);
+    return { ...req, end_year: req.end_year || ETD.wizard.lastCompleteYear(), ...(units ? { units } : {}) };
   }
 
   async function start(demoId) {

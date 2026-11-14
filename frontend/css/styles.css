@@ -83,6 +83,36 @@ h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 @media (max-width: 900px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
 }
+/* Desktop: the sidebar runs from under the header to the bottom of the window, scrolls on its own,
+   and the Investigate button is docked at its very bottom. */
+@media (min-width: 901px) {
+  /* No bottom padding: the footer now lives in the right column, so .layout ends at the page bottom
+     and the sticky sidebar can reach the window's bottom edge even when scrolled all the way down. */
+  .layout { padding-bottom: 0; }
+  .wizard {
+    position: sticky;
+    top: calc(var(--topbar-h, 70px) + 16px);
+    /* Fill the visible height (flex column, see .wizard above) so the dock below can be pinned to the
+       bottom. A literal `height: 100%` would take the grid row's height, i.e. the whole right column,
+       and break the sticky sidebar. */
+    height: calc(100vh - var(--topbar-h, 70px) - 16px);
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  .investigate-dock {
+    margin-top: auto; /* short content: push the button to the bottom; overflowing: 0, sticky takes over */
+    position: sticky; bottom: -16px; z-index: 2;
+    margin-left: -16px; margin-right: -16px; margin-bottom: -16px; padding: 12px 16px;
+    background: var(--panel);
+    box-shadow: 0 -10px 12px -8px rgba(0, 0, 0, 0.25);
+  }
+}
+.investigate-dock { display: flex; flex-direction: column; gap: 8px; }
+.investigate-dock .error { margin: 0; }
 .content { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
 .panel {
@@ -250,8 +280,32 @@ select, input[type="number"], input[type="search"] {
 .next-steps { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
 .next-steps h3 { margin: 0 0 2px; }
 select option:disabled { color: var(--muted); }
+.unit-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.unit-row label { margin: 0; white-space: nowrap; font-size: 0.85rem; }
+.unit-row select { flex: 1; min-width: 0; }
+
+/* ---------- stale results + update bar ---------- */
+.results.stale .cards, .results.stale #chart, .results.stale .verdict-panel { opacity: 0.55; transition: opacity 0.2s; }
+.stale-bar {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 1100;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100% - 32px); padding: 10px 12px 10px 18px;
+  background: var(--panel); border: 1px solid var(--primary); border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); font-size: 0.9rem;
+}
+.stale-bar .btn { padding: 8px 16px; border-radius: 999px; white-space: nowrap; }
+@media (max-width: 600px) { .stale-bar { border-radius: 14px; padding: 10px 12px; text-align: center; } }
 
 .footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 8px 16px 24px; }
+.footer p { margin: 0; }
+.footer p + p { margin-top: 4px; }
+/* Data sources on one line whenever the footer is wide enough (the line is ~902 px at 0.8rem,
+   ~846 px at 0.75rem, ~790 px at 0.7rem, plus 32 px padding); narrower windows and phones wrap
+   it instead of clipping. */
+.footer { container-type: inline-size; }
+@container (min-width: 825px) { .footer-sources { white-space: nowrap; font-size: 0.7rem; } }
+@container (min-width: 880px) { .footer-sources { font-size: 0.75rem; } }
+@container (min-width: 940px) { .footer-sources { font-size: 0.8rem; } }
 
 /* Leaflet controls should sit under the sticky header */
 .leaflet-top, .leaflet-bottom { z-index: 500; }

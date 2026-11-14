@@ -19,6 +19,7 @@ Built for high-school and college students and the curious public. It uses NASA 
 - 📚 **Resources panel** with the challenge's official NASA, NOAA, KNMI and CSA tools and guides. It is organised as a detective workflow (get data → test → cross-check → explain) and shows how the resources connect.
 - 🔗 **Next steps for each case:** after an analysis, the resources that fit your variable, place and result, each with a reason.
 - 🗺️ **Pick any region**: click a point, draw a box (up to 5° × 5°), search a place name, or use the quick ideas (desert, rainforest, Arctic, big city).
+- 🔁 **Choose your units**: show results in °F or K, inches or mm per year, km/h, mph or knots, hPa or inHg, kWh/m²/day or W/m², or soil wetness in %. Your choice is remembered.
 - 📈 **Interactive time series**: raw values or anomalies with the seasonal cycle removed, a 12-month running mean, the trend line, and a 95 % confidence band.
 - 🧮 **Trend statistics**:
   - rate of change per decade and total change
@@ -81,7 +82,7 @@ Right-click **`frontend/index.html`** → **Open with Live Server**. It opens at
 ### 4. Run the tests
 
 ```bash
-pytest -q          # 51 tests, no internet needed (all services are mocked)
+pytest -q          # 66 tests, no internet needed (all services are mocked)
 ruff check .       # lint
 ```
 
@@ -109,10 +110,10 @@ Things to know about the free Render plan:
 
 ## How to use it
 
-1. **What?** Choose a variable, e.g. *Air temperature (2 m)*, and read its definition card.
-2. **Where?** Search "Fairbanks", click the map, draw a box, or click an idea chip.
+1. **What?** Choose a variable, e.g. *Air temperature (2 m)*, and read its definition card. Under **Show results in**, you can switch units, e.g. to °F. Changing units never changes whether a trend is significant, only the numbers.
+2. **Where?** Click the map or draw a box: the place is named automatically (e.g. *El Chorro, Peru*, or *≈470 km from El Panteon, Peru* far out at sea), and that name is used in the chart title and verdict. Or search "Fairbanks", or click an idea chip.
 3. **When?** Choose at least **10 years**; 30+ years is better.
-4. Press **🔍 Investigate** and read the chart, the five result cards and the verdict.
+4. Press **🔍 Investigate** and read the chart, the five result cards and the verdict. If you then change anything (variable, unit, place or years), the results dim and an **🔄 Update investigation** bar appears at the bottom of the screen; click it to re-run. Nothing re-runs automatically, because each run downloads fresh NASA data.
 5. Try the same variable in another region. It can trend **up in one place and down in another**, even when the same process drives both.
 
 ---

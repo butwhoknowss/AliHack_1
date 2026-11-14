@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Earth Trend Detective</title>
+  <title>TerraTrend</title>
   <meta name="description" content="Find, visualize and test trends in NASA Earth science data." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%8D%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css?v=20261114d" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <span class="logo" aria-hidden="true">🌍</span>
       <div>
-        <h1>Earth Trend Detective</h1>
+        <h1>TerraTrend</h1>
         <p class="tagline">What is changing, where, by how much — and is it significant?</p>
       </div>
     </div>
@@ -37,6 +37,10 @@
         <h2><span class="step-num">1</span> What?</h2>
         <label for="variable-select">Variable to investigate</label>
         <select id="variable-select" required></select>
+        <div id="unit-row" class="unit-row" hidden>
+          <label for="unit-select">Show results in</label>
+          <select id="unit-select"></select>
+        </div>
         <div id="variable-card" class="variable-card" aria-live="polite"></div>
       </section>
 
@@ -88,14 +92,17 @@
         </details>
       </section>
 
-      <button id="investigate-btn" class="btn btn-primary btn-block" type="button">🔍 Investigate</button>
-      <p id="form-error" class="error" role="alert" hidden></p>
-
       <section class="weather-card" id="weather-card" hidden aria-live="polite">
         <h3>Right now at this place</h3>
         <div id="weather-body"></div>
         <p class="muted small">Current conditions: WeatherAPI.com. One day's weather is not a trend!</p>
       </section>
+
+      <!-- desktop: pinned to the bottom of the sidebar (margin-top: auto); stays visible while the sidebar scrolls -->
+      <div class="investigate-dock">
+        <p id="form-error" class="error" role="alert" hidden></p>
+        <button id="investigate-btn" class="btn btn-primary btn-block" type="button">🔍 Investigate</button>
+      </div>
     </aside>
 
     <!-- ================= RIGHT: map + results ================= -->
@@ -208,17 +215,24 @@
         </details>
       </div>
 
+      <div id="stale-bar" class="stale-bar" role="status" aria-live="polite" hidden>
+        <span>Settings changed. The results show your previous choices.</span>
+        <button id="update-btn" class="btn btn-primary" type="button">🔄 Update investigation</button>
+      </div>
+
       <!-- Always visible (not only after an analysis) -->
       <details class="panel learn" id="resources-panel">
         <summary><strong>📚 Resources &amp; learn more</strong> <span class="muted small">— official NASA and partner tools from the challenge, in the order a detective uses them</span></summary>
         <div id="resources-list" class="resources-list"><p class="muted">Loading…</p></div>
       </details>
+
+      <!-- inside the right column so the sidebar can reach the bottom of the window -->
+      <footer class="footer">
+        <p class="footer-sources">Data: NASA POWER (MERRA-2 reanalysis; CERES/FLASHFlux radiation) · NASA Giovanni / GES DISC (GPM, OMI, AIRS, GLDAS) · Current weather: WeatherAPI.com</p>
+        <p class="footer-note">Built for the NASA Earth science trend challenge.</p>
+      </footer>
     </section>
   </main>
-
-  <footer class="footer">
-    <p>Data: NASA POWER (MERRA-2 reanalysis; CERES/FLASHFlux radiation) · NASA Giovanni / GES DISC (GPM, OMI, AIRS, GLDAS) · Current weather: WeatherAPI.com · Built for the NASA Earth science trend challenge.</p>
-  </footer>
 
   <!-- Libraries (pinned versions) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -226,12 +240,12 @@
   <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
 
   <!-- App (order matters: each file adds to window.ETD) -->
-  <script src="js/config.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/map.js"></script>
-  <script src="js/charts.js"></script>
-  <script src="js/wizard.js"></script>
-  <script src="js/demos.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/config.js?v=20261114"></script>
+  <script src="js/api.js?v=20261114"></script>
+  <script src="js/map.js?v=20261114"></script>
+  <script src="js/charts.js?v=20261114"></script>
+  <script src="js/wizard.js?v=20261114"></script>
+  <script src="js/demos.js?v=20261114"></script>
+  <script src="js/app.js?v=20261114"></script>
 </body>
 </html>

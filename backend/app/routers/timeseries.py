@@ -1,13 +1,14 @@
 import math
 from typing import Literal
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
 from ..deps import get_sources, get_store, get_variables
 from ..models import Region, SeriesPoint, TimeseriesResponse
 from ..models.requests import FIRST_YEAR, last_complete_year
-from ..services.analysis import check_request_fits_variable, get_variable
+from ..services.analysis import check_request_fits_variable, convert_units, get_variable
 from ..services.series import regional_series
 from ..storage.xlsx_store import XlsxStore
 
@@ -29,6 +30,7 @@ async def timeseries(
     north: float | None = Query(None, ge=-90, le=90),
     east: float | None = Query(None, ge=-180, le=180),
     name: str | None = Query(None, max_length=120),
+    units: str | None = Query(None, max_length=20, description="Unit id from Variable.unit_options"),
     variables: dict[str, dict] = Depends(get_variables),
     sources: dict = Depends(get_sources),
     store: XlsxStore = Depends(get_store),
@@ -36,6 +38,7 @@ async def timeseries(
     """Raw regional series (no statistics). Daily requests are limited to 10 years."""
     variable = get_variable(variables, variable_id, sources.get("giovanni"))
     check_request_fits_variable(variable, start_year, resolution)
+    convert_units(variable, pd.Series(dtype=float), units)  # reject an unknown unit before fetching
     if end_year > last_complete_year() or end_year < start_year:
         raise HTTPException(422, f"end_year must be between start_year and {last_complete_year()}.")
     if resolution == "daily" and end_year - start_year + 1 > MAX_DAILY_YEARS:
@@ -49,6 +52,7 @@ async def timeseries(
     series, n_points = await regional_series(
         sources, store, variables[variable_id], region, start_year, end_year, resolution
     )
+    variable, series = convert_units(variable, series, units)
     points = [
         SeriesPoint(date=ts.date(), value=None if math.isnan(v) else round(float(v), 4))
         for ts, v in series.items()

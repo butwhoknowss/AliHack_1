@@ -22,6 +22,53 @@
 
   const currentVariable = () => variables.find((x) => x.id === $("variable-select").value);
 
+  // ---- display units (remembered per base unit, e.g. °F for every temperature variable) ----
+  const UNIT_KEY = (base) => "etd-unit:" + base;
+
+  function storedUnit(base) {
+    try { return localStorage.getItem(UNIT_KEY(base)); } catch (_) { return null; }
+  }
+
+  function storeUnit(base, id) {
+    try { localStorage.setItem(UNIT_KEY(base), id); } catch (_) { /* private mode: not remembered */ }
+  }
+
+  /** The viewer's remembered unit id for a variable, if that variable offers it. */
+  function preferredUnit(variableId) {
+    const v = variables.find((x) => x.id === variableId);
+    if (!v || !v.unit_options) return undefined;
+    const id = storedUnit(v.base_units || v.units);
+    return id && id !== "base" && v.unit_options.some((o) => o.id === id) ? id : undefined;
+  }
+
+  function renderUnitSelect(v, wanted) {
+    const opts = (v && v.unit_options) || [];
+    const sel = $("unit-select");
+    sel.innerHTML = "";
+    opts.forEach((o) => {
+      const el = document.createElement("option");
+      el.value = o.id;
+      el.textContent = o.label;
+      sel.appendChild(el);
+    });
+    const pick = wanted || preferredUnit(v && v.id) || "base";
+    sel.value = opts.some((o) => o.id === pick) ? pick : "base";
+    $("unit-row").hidden = opts.length < 2;
+  }
+
+  function selectedUnitLabel(v) {
+    const o = (v.unit_options || []).find((x) => x.id === $("unit-select").value);
+    return o ? o.label : v.units;
+  }
+
+  function onUnitChange() {
+    const v = currentVariable();
+    if (!v) return;
+    storeUnit(v.base_units || v.units, $("unit-select").value);
+    renderVariableCard();
+    if (ETD.app && ETD.app.checkDirty) ETD.app.checkDirty();
+  }
+
   function renderVariableCard() {
     const v = currentVariable();
     if (!v) { $("variable-card").innerHTML = ""; return; }
@@ -33,15 +80,16 @@
       ${satellite}
       <p class="var-def">${escapeHtml(v.definition)}</p>
       <p><strong>Why it matters:</strong> ${escapeHtml(v.why_it_matters)}</p>
-      <p class="muted small">Units: ${escapeHtml(v.units)} · Data from ${escapeHtml(v.first_year)} · Source: ${escapeHtml(v.source)}</p>
+      <p class="muted small">Units: ${escapeHtml(selectedUnitLabel(v))} · Data from ${escapeHtml(v.first_year)} · Source: ${escapeHtml(v.source)}</p>
       <p class="muted small">💡 Try: <em>${escapeHtml(v.example_question)}</em></p>
       ${warn}`;
   }
 
   /** Keep the year boxes inside the chosen variable's record. */
-  function onVariableChange() {
-    renderVariableCard();
+  function onVariableChange(wantedUnit) {
     const v = currentVariable();
+    renderUnitSelect(v, typeof wantedUnit === "string" ? wantedUnit : undefined);
+    renderVariableCard();
     if (!v) return;
     $("start-year").min = v.first_year;
     const start = parseInt($("start-year").value, 10);
@@ -73,17 +121,73 @@
     onVariableChange();
   }
 
+  // ---- coordinates: hemisphere letters instead of minus signs (19.5°S, 75.4°W); same as Region.label() ----
+  function fmtCoord(v, nd, pos, neg) {
+    const r = Number(Number(v).toFixed(nd));
+    if (r === 0) return `${(0).toFixed(nd)}°`;
+    return `${Math.abs(r).toFixed(nd)}°${r > 0 ? pos : neg}`;
+  }
+  const fmtLat = (v, nd = 1) => fmtCoord(v, nd, "N", "S");
+  const fmtLon = (v, nd = 1) =>
+    Math.abs(Number(Number(v).toFixed(nd))) === 180 ? `${(180).toFixed(nd)}°` : fmtCoord(v, nd, "E", "W");
+
+  /** Plain-text coordinates of a region: "64.80°N, 147.70°W" or "19.5°S–14.5°S, 75.4°W–70.4°W". */
+  function coordText(r) {
+    if (r.type === "point") return `${fmtLat(r.lat, 2)}, ${fmtLon(r.lon, 2)}`;
+    return `${fmtLat(r.south)}–${fmtLat(r.north)}, ${fmtLon(r.west)}–${fmtLon(r.east)}`;
+  }
+
+  /** Name if the region has one, otherwise its coordinates (matches the backend's Region.label()). */
+  function regionLabel(r) {
+    if (!r) return "";
+    if (r.name) return r.name;
+    return r.type === "point" ? coordText(r) : `box ${coordText(r)}`;
+  }
+
   function regionText(r) {
     if (!r) return "No region selected yet — click the map.";
     const nm = r.name ? `<strong>${escapeHtml(r.name)}</strong> · ` : "";
-    if (r.type === "point") return `${nm}Point ${r.lat.toFixed(2)}°, ${r.lon.toFixed(2)}°`;
-    return `${nm}Box ${r.south.toFixed(1)}° to ${r.north.toFixed(1)}° lat, ${r.west.toFixed(1)}° to ${r.east.toFixed(1)}° lon`;
+    return `${nm}${r.type === "point" ? "Point" : "Box"} ${escapeHtml(coordText(r))}`;
+  }
+
+  // ---- place names for clicked points / drawn boxes (reverse geocoding via the backend) ----
+  const nameCache = new Map();          // "point:-17.00,-72.90" -> "El Chorro, Peru"
+  let nameToken = 0;                    // ignore replies that arrive after a newer click
+  let namePending = Promise.resolve();
+  let regionClipped = false;
+
+  function renderRegionLabel(looking) {
+    $("region-label").innerHTML =
+      regionText(region) +
+      (regionClipped ? ' <span class="warn">(shrunk to the 5° limit)</span>' : "") +
+      (looking ? ' <span class="muted small">· looking up the place name…</span>' : "");
+  }
+
+  function lookupName(r) {
+    const token = ++nameToken;
+    const lat = r.type === "point" ? r.lat : (r.south + r.north) / 2;
+    const lon = r.type === "point" ? r.lon : (r.west + r.east) / 2;
+    const key = `${r.type}:${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const lookup = nameCache.has(key)
+      ? Promise.resolve(nameCache.get(key))
+      : ETD.api.reverseGeocode(lat, lon, r.type).then((p) => { nameCache.set(key, p.label); return p.label; });
+    namePending = lookup
+      .then((label) => {
+        if (token !== nameToken || region !== r || !label) return;
+        region = { ...r, name: label };
+        renderRegionLabel(false);
+      })
+      .catch(() => { if (token === nameToken) renderRegionLabel(false); }); // no name: coordinates stay
   }
 
   function setRegion(r, clipped) {
     region = r;
-    $("region-label").innerHTML =
-      regionText(r) + (clipped ? ' <span class="warn">(shrunk to the 5° limit)</span>' : "");
+    regionClipped = !!clipped;
+    const needsName = !!r && !r.name;
+    renderRegionLabel(needsName);
+    if (needsName) lookupName(r);
+    else { nameToken++; namePending = Promise.resolve(); }
+    if (ETD.app && ETD.app.checkDirty) ETD.app.checkDirty();
   }
 
   function setYears(start, end) {
@@ -116,6 +220,7 @@
       resolution: $("resolution").value,
       deseasonalize: $("deseasonalize").checked,
       alpha: parseFloat($("alpha").value),
+      ...($("unit-select").value && $("unit-select").value !== "base" ? { units: $("unit-select").value } : {}),
     };
   }
 
@@ -123,7 +228,7 @@
   function fill(req) {
     $("variable-select").value = req.variable_id;
     setYears(req.start_year, req.end_year || lastCompleteYear());
-    onVariableChange();
+    onVariableChange(req.units || undefined);
     setDeseasonalize(req.deseasonalize !== false);
     $("resolution").value = req.resolution || "monthly";
     $("alpha").value = String(req.alpha || 0.05) === "0.1" ? "0.10" : String(req.alpha || 0.05);
@@ -162,12 +267,13 @@
     const last = lastCompleteYear();
     ["start-year", "end-year"].forEach((id) => { $(id).max = last; });
     setYears(ETD.config.FIRST_YEAR, last);
-    $("variable-select").addEventListener("change", onVariableChange);
+    $("variable-select").addEventListener("change", () => onVariableChange());
+    $("unit-select").addEventListener("change", onUnitChange);
     $("search-form").addEventListener("submit", onSearch);
     document.querySelectorAll(".chip[data-place]").forEach((chip) =>
       chip.addEventListener("click", () => ETD.map.setRegion(PRESETS[chip.dataset.place]))
     );
   }
 
-  ETD.wizard = { init, setVariables, setRegion, buildRequest, fill, getRegion: () => region, lastCompleteYear, escapeHtml };
+  ETD.wizard = { init, setVariables, setRegion, buildRequest, fill, getRegion: () => region, lastCompleteYear, escapeHtml, preferredUnit, regionLabel, whenNamed: () => namePending };
 })();

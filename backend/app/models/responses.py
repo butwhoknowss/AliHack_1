@@ -8,6 +8,11 @@ from pydantic import BaseModel, field_validator
 from .requests import Region
 
 
+class UnitOption(BaseModel):
+    id: str             # send this as AnalyzeRequest.units ("base" = the variable's own unit)
+    label: str
+
+
 class Variable(BaseModel):
     id: str
     name: str
@@ -22,6 +27,8 @@ class Variable(BaseModel):
     first_year: int = 1981
     available: bool = True          # False when the provider needs credentials that are missing
     unavailable_reason: str | None = None
+    base_units: str = ""            # the catalog unit; `units` shows the unit the results are in
+    unit_options: list[UnitOption] = []
 
 
 class ResourceLink(BaseModel):
@@ -144,6 +151,12 @@ class Location(BaseModel):
     country: str
     lat: float
     lon: float
+
+
+class ReverseLocation(Location):
+    """Nearest named place to a clicked point / drawn box, with a ready-to-use label."""
+    distance_km: float
+    label: str          # e.g. "El Chorro, Peru", "area around Arequipa, Peru", "≈470 km from El Panteon, Peru"
 
 
 class CurrentWeather(BaseModel):

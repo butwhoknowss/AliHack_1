@@ -48,6 +48,9 @@
     resources: () => getJson("/api/resources"),
     resourceSteps: () => getJson("/api/resources/steps"),
     searchPlaces: (q) => getJson("/api/locations/search?q=" + encodeURIComponent(q)),
+    /** Nearest named place for a point or box centre -> {label, name, country, distance_km, ...}. */
+    reverseGeocode: (lat, lon, kind) =>
+      getJson(`/api/locations/reverse?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&kind=${encodeURIComponent(kind)}`),
     currentWeather: (lat, lon) =>
       getJson(`/api/weather/current?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`),
     analyze: async (body) =>

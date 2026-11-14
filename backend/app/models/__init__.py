@@ -12,9 +12,11 @@ from .responses import (
     Resource,
     ResourceLink,
     ResourceStep,
+    ReverseLocation,
     SeriesPoint,
     TimeseriesResponse,
     TrendResult,
+    UnitOption,
     Variable,
 )
 
@@ -32,9 +34,11 @@ __all__ = [
     "NextStep",
     "Resource",
     "ResourceLink",
+    "ReverseLocation",
     "ResourceStep",
     "SeriesPoint",
     "TimeseriesResponse",
     "TrendResult",
+    "UnitOption",
     "Variable",
 ]

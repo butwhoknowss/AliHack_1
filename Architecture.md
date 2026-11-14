@@ -116,13 +116,14 @@ Base path: `/api`. Errors always look like `{"detail": "<human-readable message>
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | `{status, nasa_power, weatherapi, storage, weatherapi_configured, giovanni_configured, giovanni, giovanni_error}`. Upstream checks are cached for 5 minutes. |
-| GET | `/api/variables?category=&q=` | Catalog list, with optional filters. Each variable includes `provider` (`power`/`giovanni`), `first_year`, `available` and `unavailable_reason`. |
+| GET | `/api/variables?category=&q=` | Catalog list, with optional filters. Each variable includes `provider` (`power`/`giovanni`), `first_year`, `available`, `unavailable_reason`, `base_units` and `unit_options: [{id, label}]` (§5.5). |
 | GET | `/api/resources` | Official challenge resources: `{key, step, topics, title, provider, kind, url, how_it_helps, used_in_app, related: [{key, why}]}` |
 | GET | `/api/resources/steps` | The detective workflow the resources are grouped by: `[{step, title, intro}]` (data → test → check → explain) |
 | GET | `/api/variables/{id}` | One variable (404 if unknown) |
 | GET | `/api/locations/search?q=` | Place name → `[{name, region, country, lat, lon}]` (404 if nothing matches) |
+| GET | `/api/locations/reverse?lat=&lon=&kind=point\|bbox` | Nearest named place (WeatherAPI search with `q=lat,lon`) plus `distance_km` and a `label` that is honest about distance (`services/places.py`): point ≤ 50 km "El Chorro, Peru", ≤ 150 km "near …", farther "≈470 km from …"; box ≤ 150 km "area around …". 404 if nothing found. |
 | GET | `/api/weather/current?lat=&lon=` | Current conditions |
-| GET | `/api/timeseries?variable_id=&start_year=&end_year=&resolution=&lat=&lon=` or `&south=&west=&north=&east=` | Raw regional series without statistics. Daily requests are limited to 10 years. |
+| GET | `/api/timeseries?variable_id=&start_year=&end_year=&resolution=&lat=&lon=` or `&south=&west=&north=&east=`, optional `&units=` | Raw regional series without statistics. Daily requests are limited to 10 years. |
 | POST | `/api/analyze` | **Main endpoint**: time series plus full trend analysis. The result is saved unless `save:false`. |
 | GET | `/api/analyses/{analysis_id}` | Re-creates a saved analysis from its stored request. The series comes from the cache. The id is 32 hex characters. |
 | GET | `/api/demos` | Demo scenarios: `{demo_id, title, story, request, compare_request?, narration_steps[]}`. `end_year: null` means the frontend fills in the last complete year. |
@@ -136,6 +137,9 @@ class Region(BaseModel):
     lat, lon: float | None                    # point; ranges ±90 / ±180
     south, west, north, east: float | None    # bbox
     name: str | None                          # display label (max 120 chars)
+    # label(): the name, else hemisphere coordinates without minus signs:
+    #   point "64.80°N, 147.70°W"; box "box 19.5°S–14.5°S, 75.4°W–70.4°W"
+    #   (fmt_lat / fmt_lon / fmt_range; frontend twin: ETD.wizard.regionLabel)
     # validator: point needs lat+lon; bbox needs all 4, south<north, west<east
     #            (no dateline crossing), each side <= 5 degrees
 
@@ -148,6 +152,7 @@ class AnalyzeRequest(BaseModel):
     deseasonalize: bool = True
     alpha: float = 0.05    # 0 < alpha < 0.5
     save: bool = True
+    units: str | None = None   # id from Variable.unit_options (e.g. "degF"); None = the variable's own unit
     # validator: end_year - start_year + 1 >= 10
 ```
 
@@ -156,7 +161,7 @@ class AnalyzeRequest(BaseModel):
 | Field | Meaning |
 |---|---|
 | `analysis_id` | uuid4 hex |
-| `variable`, `region`, `resolution`, `deseasonalize`, `alpha`, `period` | Echo of the request |
+| `variable`, `region`, `resolution`, `deseasonalize`, `alpha`, `period` | Echo of the request. `variable.units` is the unit the results are in (the chosen one); `variable.base_units` is the catalog unit. |
 | `series[]` | `{date, value, anomaly}`, monthly. `anomaly` is null if not deseasonalized. |
 | `trend_line[]` | OLS fitted values, on the anomaly scale when deseasonalized |
 | `ci_band[]` | `{date, low, high}`: 95 % confidence band of the fitted mean |
@@ -168,6 +173,30 @@ class AnalyzeRequest(BaseModel):
 | `trend.verdict`, `trend.hints[]` | Plain-language text |
 | `missing_fraction`, `n_sample_points`, `source_citation`, `created_at` | |
 | `next_steps` | Up to 4 `{key, title, url, step, why}`: challenge resources chosen for this variable, place and result (`services/next_steps.py`). Added by `POST /api/analyze` and `GET /api/analyses/{id}`. |
+
+### 5.5 Display units (`services/units.py`)
+
+Users can show results in another unit. Every option is linear (`value × factor + offset`). The conversion is applied to the monthly series **before** the statistics, so:
+- **Slopes, confidence intervals, total change and the series:** scale with the unit.
+- **p-values, `significant` and `agreement`:** unchanged.
+- **Anomalies:** unaffected by the offset.
+
+`variable.units` is replaced by the chosen label, so the verdict, cards, chart and export all use it with no other code involved. The cache keeps base-unit values.
+
+| Base unit | Options (id → label) |
+|---|---|
+| °C | `degF` → °F (×1.8 + 32), `K` → K (+273.15) |
+| mm/day | `mm_month` → mm/month (× 365.25/12, an average month), `mm_year` → mm/year (×365.25), `in_year` → inches/year (×365.25/25.4) |
+| m/s | `km_h` → km/h, `mph` → mph, `knots` → knots |
+| kPa | `hPa` → hPa (×10), `inHg` → inHg (÷3.386389) |
+| MJ/m²/day | `kWh_m2_day` → kWh/m²/day (÷3.6), `W_m2` → W/m² (×10⁶/86400) |
+| fraction (0–1) | `percent` → % (0–100) (×100) |
+
+- `%`, `g/kg`, `DU` and `AOD` have no alternatives.
+- Options are keyed by the catalog unit string, so a new variable with one of these units gets them automatically.
+- `base` (or omitting `units`) means no conversion; an id not offered for the variable returns 422.
+- Temperatures stay non-ratio, so there is no percent change in °F or K either.
+- **Frontend:** a "Show results in" picker under the variable, hidden when there is only one unit. The choice is remembered per base unit in `localStorage` (`etd-unit:<base unit>`), so °F applies to every temperature variable and to the demos.
 
 ### 5.4 Status codes
 
@@ -338,6 +367,7 @@ AnalyzeRequest (pydantic-validated)
         new series written to cache in one batch; NaN-aware weighted mean on a complete date index
   → daily? → to_monthly() (a month needs ≥ 50 % valid days)
   → missing_fraction > 20 % → 422
+  → convert_units(): optional display unit, value × factor + offset (§5.5)
   → trend.analyze_series()  (§9)
   → explain.build_verdict() + build_hints()
   → save to analyses.xlsx (if save) → AnalyzeResponse
@@ -390,9 +420,25 @@ The scripts load in this order, each adding to `window.ETD`: `config` → `api` 
 | `api.js` | `fetch` wrappers with a 180 s timeout and friendly errors. Downloads exports via a Blob. |
 | `map.js` | Leaflet with OSM tiles (`tile.openstreetmap.org`). Point mode places a marker on click. Box mode uses Leaflet.draw rectangles, shrinks boxes over 5° and rejects boxes that cross the dateline. A second blue box is drawn for comparison demos. |
 | `charts.js` | Plotly chart with the 95 % band, the monthly data, a 12-month running mean and the trend line. When the raw view is shown, the trend line is shifted to the data mean. Colors follow the page theme. Uses Okabe-Ito colors (orange = main region, blue = comparison). |
-| `wizard.js` | What/Where/When form: variables grouped by category, definition card, place search, idea chips, validation (≥ 10 years, ≤ last complete year), `fill()` for demos. |
+| `wizard.js` | What/Where/When form (clicked points and drawn boxes are named via `/api/locations/reverse`; cached, newest click wins; Investigate waits up to 3 s for a pending name): variables grouped by category, definition card, unit picker, place search, idea chips, validation (≥ 10 years, ≤ last complete year), `fill()` for demos. `regionLabel()` formats coordinates with N/S/E/W like the backend. |
 | `demos.js` | Narrated, step-by-step demos. When there is a `compare_request`, both analyses run in parallel. |
-| `app.js` | State, result cards, verdict and hints, comparison panel, weather card (optional, never blocks), backend status indicator, export buttons. |
+| `app.js` | State, result cards, verdict and hints, comparison panel, weather card (optional, never blocks), backend status indicator, export buttons, stale-results tracking (below). |
+
+**Desktop layout (> 900 px):**
+- The sidebar is a flex column with `position: sticky`, and it scrolls on its own (`overflow-y: auto`). It runs from 16 px below the header to the **bottom edge of the window** (`height: calc(100vh - var(--topbar-h) - 16px)`; no bottom border or radius). A literal `height: 100%` would take the grid row's height (the whole right column) and break the sticky behaviour.
+- `app.js` measures `--topbar-h` with a `ResizeObserver`, because the header wraps on narrow windows.
+- The page footer lives at the end of the right column (`.content`), and `.layout` has no bottom padding on desktop. A sticky box can't extend past the end of its container, so this lets the sidebar reach the window bottom even when scrolled to the end.
+- `index.html` loads CSS and JS with `?v=YYYYMMDD`. Bump it when they change, so browsers and the `:8000` static mount don't serve stale copies.
+- The Investigate button (and form errors) sit in `.investigate-dock`, the last item in the sidebar, after the weather card:
+  - **Short content:** `margin-top: auto` pins it to the bottom and fills the empty space.
+  - **Overflowing content:** the margin is 0, and `position: sticky; bottom` keeps the button visible.
+- **Phones (one column):** normal page flow.
+
+**Stale results:** analyses are **not** re-run automatically, because each run downloads up to 25 NASA series and can take a minute. Instead:
+- `app.js` keeps `canonical(request)` of the shown results: a fixed-order fingerprint with rounded coordinates that ignores the region name.
+- On any input or change in the sidebar, and on map/region and unit changes, `checkDirty()` compares it with the current form.
+- When they differ, a fixed **"Update investigation"** bar appears at the bottom of the screen, the results dim (`.results.stale`), and the sidebar button reads "🔄 Update investigation".
+- The bar hides while loading and when the form matches the shown results again.
 
 Note: `[hidden] { display: none !important; }` in `styles.css` is required, because components with `display: flex` would otherwise override the `hidden` attribute.
 
@@ -430,12 +476,15 @@ Note: `[hidden] { display: none !important; }` in `styles.css` is required, beca
 | `test_trend.py` | Synthetic series (known slope + seasonal sine + AR(1) noise): slope recovery, significance, sign, seasonal MK, gaps, n_eff, percent rule |
 | `test_nasa_power.py` | Month 13 dropped, −999 → NaN, daily keys, retry on 503, no retry on 4xx (respx) |
 | `test_next_steps.py` | Every resource has a workflow step and valid links; suggestions for temperature, not-significant results, satellite runoff and Canadian regions; Canada box test; `/api/resources` relationships and `/api/resources/steps` |
+| `test_places.py` | Haversine distance, place labels (same cell / near / ≈ km from / area around), USA shortening, 120-char cap, `/api/locations/reverse` (mocked) and 404, verdict uses the place name |
+| `test_region.py` | Hemisphere formatting (S/W instead of minus signs, 0° and 180° without a letter), point/box/named labels, verdict for a southern-western box |
+| `test_units.py` | Known conversions (0 °C → 32 °F, 101.325 kPa → 29.92 inHg, …), unknown unit rejected, option keys match catalog units, `/api/variables` options, °F analysis: slope ×1.8 with identical p-values, °F verdict, export columns in °F, invalid unit 422 |
 | `test_xlsx_store.py` | Catalog round trip (including resource links), cache persistence across instances, TTL, daily kept in memory, corrupt-file recovery, saved analyses |
 | `test_api.py` | Full API through `TestClient` with mocked upstreams: analyze → cache hit → reload → xlsx/csv export, bbox sampling, validation (422), 404s, 502 mapping, all-missing 422, search/weather, CORS for :5500 |
 
 | `test_giovanni.py` | CSV parsing with metadata and fill values, daily → monthly, sign-in flow (Basic auth sent only to Earthdata, token cached), unit conversion, rejected-login message, variables unavailable without a login, first-year and daily 422s, end-to-end Giovanni analysis (3 × 3 points), `/api/resources` |
 
-Commands: `pytest -q` (51 tests, no network) and `ruff check .`.
+Commands: `pytest -q` (66 tests, no network) and `ruff check .`.
 
 ## 15. Four-day schedule
 
